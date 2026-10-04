@@ -3,7 +3,7 @@
 // - 本番中の強制リロードを避けるため skipWaiting は自動では呼ばない。
 //   スタッフ画面から {type:'SKIP_WAITING'} を受けたときだけ有効化する。
 // - ファイルを更新してデプロイするときは VERSION を上げること（上げないと古いキャッシュが使われ続ける）。
-const VERSION = 2;
+const VERSION = 3;
 const CACHE_PREFIX = 'yosoro-gacha-';
 const CACHE = `${CACHE_PREFIX}v${VERSION}`;
 
@@ -14,7 +14,11 @@ const PRECACHE = [
   'manifest.webmanifest',
   'css/tokens.css',
   'css/app.css',
-  'css/stage.css',
+  'css/poster.css',
+  'fonts/dela-gothic-one.woff2',
+  'fonts/zen-kaku-gothic-new-700.woff2',
+  'fonts/archivo-900.woff2',
+  'fonts/dm-mono-500.woff2',
   'js/config.js',
   'js/lottery.js',
   'js/db.js',
@@ -22,10 +26,10 @@ const PRECACHE = [
   'js/ui.js',
   'js/app.js',
   'js/admin.js',
-  'js/scene.js',
+  'js/poster.js',
+  'js/screens.js',
   'js/stage.js',
   'js/sound.js',
-  'js/confetti.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/apple-touch-icon.png',

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>YoSoro! お宝ガチャ</title>
   <meta name="description" content="電波祭2026 景品抽選（オフライン対応）">
-  <meta name="theme-color" content="#6cc6ec">
+  <meta name="theme-color" content="#EEEADB">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,39 +14,27 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preload" href="fonts/dela-gothic-one.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/zen-kaku-gothic-new-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/archivo-900.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/dm-mono-500.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/app.css">
-  <link rel="stylesheet" href="css/stage.css">
+  <link rel="stylesheet" href="css/poster.css">
 </head>
 <body>
-  <div id="scene-bg" aria-hidden="true"></div>
-
-  <!-- ロゴ：3秒長押しでスタッフ画面。結果オーバーレイより上に出して、未確認の抽選中でも入れるようにする -->
-  <header class="brand">
-    <!-- 3秒長押しでスタッフ画面 -->
-    <button id="logo" class="logo" type="button" aria-label="YoSoro! お宝ガチャ" data-testid="logo">
-      <span class="logo-mark" aria-hidden="true">
-        <svg viewBox="0 0 64 64" width="44" height="44">
-          <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round">
-            <circle cx="32" cy="32" r="17"/>
-            <path d="M32 4v14M32 46v14M4 32h14M46 32h14M12.2 12.2l9.9 9.9M41.9 41.9l9.9 9.9M12.2 51.8l9.9-9.9M41.9 22.1l9.9-9.9"/>
-          </g>
-          <circle cx="32" cy="32" r="6" fill="currentColor"/>
-        </svg>
-      </span>
-      <span class="logo-text">YoSoro!</span>
-    </button>
-  </header>
-
-  <main id="app">
-    <!-- 左：参加者の操作パネル（core） -->
-    <aside id="panel">
+  <!-- ポスター全体（1180×820 / 縦 820×1180 を基準に等倍で拡縮。js/stage.js が演出レイヤーを足す） -->
+  <div id="stage" data-screen="idle" data-o="l">
+    <div id="panel">
       <div id="screen-host"></div>
-    </aside>
+    </div>
 
-    <!-- 右：ガチャ機・舵輪・演出（visual が mount する） -->
-    <div id="stage"></div>
-  </main>
+    <!-- ロゴ：3秒長押しでスタッフ画面。結果オーバーレイより上に出して、未確認の抽選中でも入れるようにする -->
+    <button id="logo" class="logo" type="button" aria-label="YoSoro! お宝ガチャ" data-testid="logo">
+      <svg class="logo-mark" viewBox="-300 -300 600 600" aria-hidden="true"><use href="#wheel" x="-300" y="-300" width="600" height="600"/></svg>
+      <span class="logo-text"><span class="jp">電波祭 2026 / </span>DENPASAI 2026</span>
+    </button>
+  </div>
 
   <div id="admin-root"></div>
 

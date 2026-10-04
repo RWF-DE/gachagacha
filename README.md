@@ -12,10 +12,11 @@
 
 ```
 index.html / manifest.webmanifest / sw.js   アプリ本体・PWA
-css/   tokens.css（共有）・app.css（操作パネル・スタッフ画面）・stage.css（ガチャ機・演出）
+css/   tokens.css（色・書体）・app.css（共通部品・スタッフ画面）・poster.css（プレイヤー画面・演出）
 js/    app.js（画面の流れ）・admin.js（スタッフ画面）・db.js（IndexedDB）・lottery.js（抽選）・config.js（既定の景品）
-       stage.js / scene.js / sound.js / confetti.js（演出）
-icons/ ホーム画面アイコン
+       stage.js / screens.js / poster.js（ポスター画面・演出）・sound.js（効果音）
+fonts/ 自前ホストのフォント（woff2・OFL。dev/build-fonts.py で作り直せる）
+icons/ ホーム画面アイコン（dev/render-icons.mjs で icon.svg から書き出し）
 tests/ lottery.test.mjs（単体）・e2e.mjs（Playwright）
 ```
 
@@ -37,11 +38,12 @@ tests/ lottery.test.mjs（単体）・e2e.mjs（Playwright）
 ファイルを変更したら **`sw.js` の先頭の `VERSION` を 1 つ上げて** から公開してください（上げないと iPad は古いキャッシュを使い続けます）。
 iPad 側では、スタッフ画面の「状態」→「更新を適用」で切り替えます（未確認の抽選が無いときだけ押せます。本番中に自動で再読み込みはしません）。
 ファイルを追加したときは `sw.js` の `PRECACHE` にも追加してください。
+フォント（`fonts/*.woff2`）は日本語の動的な文字（賞の名称・景品名など）に備えて JIS 第1水準漢字＋かな＋画面内の全文字を含めたサブセットです。画面の文言を増やしたら `python3 dev/build-fonts.py`（要 fonttools・brotli・npm）で作り直してください。
 
 ## iPad への入れ方（本番の前日までに）
 
 1. iPad を Wi-Fi につなぎ、Safari で公開URLを開く。
-2. 画面左上の **ロゴ（YoSoro!）を3秒長押し** → 初回はセットアップ画面が出るので、PIN・景品の本数・学籍番号のルールを確認して「はじめる」。
+2. 画面左上の **ロゴ（舵輪マークと「電波祭 2026 / DENPASAI 2026」の文字）を3秒長押し** → 初回はセットアップ画面が出るので、PIN・景品の本数・学籍番号のルールを確認して「はじめる」。
 3. もう一度ロゴを3秒長押し → PIN → **「状態」で「オフライン準備完了」と表示されるまで待つ**（数十秒）。「保存領域の保護」も「保護されています」になるのが望ましい（許可を求めるボタンあり）。
 4. Safari の共有ボタン → **「ホーム画面に追加」**。
 5. **ホーム画面のアイコンから起動**する（以後はこちらを使う。Safari で開いたデータとは別の保存領域になることがあるため、セットアップはアイコンから起動した状態でやり直すのが確実）。

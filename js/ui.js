@@ -26,6 +26,8 @@ export function createTenkey({ maxLength = 10, mask = false, placeholder = '', s
   render();
   return {
     el,
+    display,   // 表示欄だけ／キーだけを別の場所に置きたい画面用
+    grid,
     getValue: () => value,
     setValue: (v) => { value = String(v); render(); },
     clear: () => { value = ''; render(); },

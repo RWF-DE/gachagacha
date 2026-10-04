@@ -24,7 +24,7 @@ try {
   for (const [file, size] of targets) {
     const page = await browser.newPage({ viewport: { width: size, height: size }, deviceScaleFactor: 1 });
     await page.setContent(
-      `<!doctype html><html><body style="margin:0;background:#155e7d"><img src="${dataUrl}" width="${size}" height="${size}" style="display:block"></body></html>`
+      `<!doctype html><html><body style="margin:0;background:#EEEADB"><img src="${dataUrl}" width="${size}" height="${size}" style="display:block"></body></html>`
     );
     await page.waitForFunction(() => document.images[0].complete);
     await page.screenshot({ path: path.join(root, file), omitBackground: false, clip: { x: 0, y: 0, width: size, height: size } });

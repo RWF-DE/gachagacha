@@ -4,7 +4,7 @@
 **完全オフラインで iPad 内に完結**する PWA（静的 HTML/CSS/JS + manifest + Service Worker + IndexedDB）。
 
 - ビルド工程なし・フレームワークなし・外部CDNなし。ES Modules（`<script type="module">`）。
-- 画像は原則インライン SVG / CSS。効果音は Web Audio で合成（音声ファイルなし）。フォントはシステムフォント。
+- 画像は原則インライン SVG / CSS。効果音は Web Audio で合成（音声ファイルなし）。フォントは自前ホスト（`fonts/*.woff2`、サブセット済み・OFL）で、iPad では Hiragino Sans を代替にする。
 - すべて**相対パス**。`https://denpasai.jp/gacha/` でも `https://<user>.github.io/gachagacha/` でも動くこと。
 - 対象：iPad Safari / ホーム画面に追加したPWA、横置き優先（縦置きでも崩れない）。1024×768〜1366×1024。
 
@@ -55,8 +55,8 @@
 1. **区分選択**：「本校の学生」「本校学生以外の方」の大ボタン。「おひとり1回・参加無料」。
 2. **学籍番号**：大きな表示欄、テンキー（0-9・1文字削除・戻る・決定）。注意書き「学籍番号は参加済みの確認だけに使います。」
    参加済みなら「この学籍番号では参加済みです。スタッフに確認してください」（氏名等は表示しない）。
-3. **舵輪で抽選**：「舵輪を回して、お宝を引こう！」。舵輪をドラッグで約120°以上回す、または舵輪タップ、または「タップでまわす」ボタン。どれでも1回だけ発火。戻るボタンあり（抽選前のみ）。
-4. **演出**：保存完了後に開始。合計 約3.5〜4.5秒（協賛特別賞は+1秒まで）。reduced-motion 時は 1秒未満。
+3. **舵輪で抽選**：「舵輪を回して、お宝を引こう！」。舵輪をドラッグで累積180°以上回す、または舵輪タップ、または「タップでまわす」ボタン、または Enter/Space。どれでも1回だけ発火。戻るボタンあり（抽選前のみ）。入力した瞬間から舵輪が空転し（待ち時間の演出）、保存が完了したらワイプ演出に入る。
+4. **演出**：保存完了を 0 秒として、スタッフのボタンが出るまで ステッカー賞 約3秒／レアステッカー賞 約4秒／協賛特別賞 約5.5秒。reduced-motion・`?fast=1` は 1秒未満（カットとフェードだけ）。
 5. **結果**：賞の名称（大）・景品名（大）・抽選番号（小）「この画面のままスタッフにお見せください」。スタッフが「お渡し済み・OK」を**約1秒長押し**（進捗リング表示）→ 確認済み保存 → 待機へ。
 
 起動時に未確認の抽選があれば、その抽選の結果を（短い演出で）再表示し、新規抽選を許可しない。
@@ -110,68 +110,62 @@
 - `manifest.webmanifest`：`display: standalone`, `orientation: landscape`, `start_url: ./`, `scope: ./`、アイコン 192/512 PNG + `apple-touch-icon` 180 PNG。
 - iPad 対策：ダブルタップズーム無効（`touch-action: manipulation`）、ピンチズーム無効、オーバースクロール無効、長押しメニュー/文字選択無効、ノッチ安全域対応。
 
-## 9. モジュール構成と担当
+## 9. モジュール構成
 
 ```
-index.html               … 骨組み・meta・SW登録（core）
-css/tokens.css           … 共有トークン（固定）
-css/app.css              … 左パネル・テンキー・スタッフ画面・モーダル（core）
-css/stage.css            … 背景・ガチャ機・舵輪・演出・結果カード（visual）
-js/config.js             … 既定設定（core）
-js/lottery.js            … 純粋関数（core）
-js/db.js                 … IndexedDB（core）
-js/app.js                … 画面状態機械・統合（core）
-js/admin.js              … スタッフ画面（core）
-js/scene.js              … 背景シーン（visual）
-js/stage.js              … ガチャ機・舵輪・演出（visual）
-js/sound.js              … 効果音（visual）
-js/confetti.js           … 紙吹雪/光の粒子（visual）
-sw.js, manifest.webmanifest（core） / icons/*（visual）
-tests/                   … node:test（lottery）と Playwright E2E（core）
+index.html               … 骨組み・meta・フォント preload・SW登録。#stage（ポスター全体）と #admin-root
+css/tokens.css           … 色・フォント・イージングのトークン、@font-face
+css/app.css              … リセット・iPad対策・ボタン・テンキー・ダイアログ・スタッフ画面
+css/poster.css           … プレイヤー画面すべて（各画面・シャッター・タイトルカード・結果・演出タイムライン）
+fonts/*.woff2, OFL-*.txt … Dela Gothic One / Zen Kaku Gothic New 700 / Archivo 900 / DM Mono 500（dev/build-fonts.py で生成）
+js/config.js, lottery.js, db.js  … 既定設定・純粋関数・IndexedDB（演出と無関係）
+js/app.js                … 画面状態機械・抽選フロー（保存→演出）・スタッフOK・起動復旧・アイドル復帰
+js/screens.js            … 区分選択／学籍番号／情報画面（終了・エラー・読込失敗）の組み立て
+js/stage.js              … 舵輪の画面・空転・演出（シャッター／タイトルカード）・結果カード・拡縮
+js/poster.js             … 舵輪SVG・ヘッダ帯・拡縮（fitStage）・紙の粒子・文字の割り付け
+js/sound.js              … 効果音（Web Audio 合成）
+js/admin.js, ui.js, util.js … スタッフ画面・共通UI・ユーティリティ
+sw.js, manifest.webmanifest, icons/*
+tests/                   … node:test（lottery）と Playwright E2E
+dev/                     … build-fonts.py（フォント生成）, render-icons.mjs（アイコン書出し）
 ```
 
-### 9.1 visual ↔ core の契約（この API を厳守）
+### 9.1 app.js ↔ stage.js の境界
 
 ```js
-// js/scene.js
-export function createScene(bgEl): { setMood(mood: 'idle'|'celebrate'|'calm'): void }
-
-// js/sound.js
-export const sound = {
-  unlock(): void,                 // 最初のユーザー操作時に呼ぶ（iOSのAudioContext解錠）
-  setEnabled(b: boolean): void,
-  setVolume(v: number /*0..1*/): void,
-  play(name: 'tap'|'tick'|'spin'|'drop'|'shake'|'open'|'fanfare-sponsor'|'fanfare-rare'|'fanfare-sticker'|'error'): void,
-};
-
-// js/stage.js
-export function createStage(stageEl: HTMLElement, opts: { sound, reducedMotion?: boolean }): {
-  setInteractive(on: boolean): void,  // 舵輪の操作可否（false中は見た目も控えめに）
-  onTurn(cb: () => void): void,       // 有効時に「回した」と判定したら1回だけ呼ぶ。呼ぶ直前に自身を setInteractive(false) にする
-  startSpin(): void,                  // 結果未確定のまま舵輪の空転・ガチャ機の揺れを開始（onTurn直後にcoreが呼ぶ）
-  abort(): void,                      // 保存失敗時：空転停止・何も出さず待機へ
-  playReveal(r: RevealData): Promise<void>,  // 空転→宝箱落下→中央へ→揺れ→開封→結果カード。カード表示完了で resolve
-  showResultStatic(r: RevealData): void,     // 復旧用：短い演出で結果カードを表示
-  resultActionsEl: HTMLElement,       // 結果カード内の操作スロット。coreがスタッフOKボタンを入れる
-  reset(): Promise<void>,             // 結果オーバーレイを閉じて待機状態へ（フェードアウト）
-  setAttract(on: boolean): void,      // 待機中のアトラクト演出（カプセルがゆらゆら等）
-};
-// RevealData = { tier:'sponsor'|'rare'|'sticker', categoryName:string, prizeName:string, label:string, reduced?:boolean }
+const stage = createStage(document.getElementById('stage'), { sound, reducedMotion });
+stage.wheelScreen({ onBack }): HTMLElement   // 舵輪の画面（data-testid screen-wheel / spin-button / wheel / back）。app.js が #screen-host に入れる
+stage.onTurn(cb)          // 回した（累積180°・タップ・ボタン・Enter/Space）と判定したら1回だけ。直前に自身を setInteractive(false)
+stage.setInteractive(on)
+stage.startSpin()         // 入力の直後：保存完了を待つあいだ舵輪を空転
+stage.abort()             // 保存失敗：空転停止（景品は出さない）
+stage.playReveal(r)       // 保存完了「後」に呼ぶ。スタッフのボタンが出る瞬間に resolve
+stage.showResultStatic(r) // 起動時の復旧：演出なしで結果を表示
+stage.resultActionsEl     // 結果カード内の操作スロット（app.js がスタッフOKボタンを入れる）
+stage.reset()             // 結果を畳んで待機の紙へ
+stage.setDay(text)        // ヘッダの開催日（飾り。残数・確率は出さない）
+// r = { tier:'sponsor'|'rare'|'sticker', categoryName, prizeName, label }
 ```
 
-- 結果オーバーレイ（宝箱開封＋結果カード）は stage が `position:fixed` 全画面で描く（z-index: `--z-reveal`）。
-  結果カードには `categoryName`（大）、`prizeName`（大）、`抽選番号 {label}`（小）、「この画面のままスタッフにお見せください」、そして `resultActionsEl` を含む。
-- `?fast=1` クエリ または `reducedMotion` で演出を 1 秒未満に短縮（E2Eテスト用）。
-- stage は抽選ロジック・DBに一切触らない。core は演出の DOM に触らない（`resultActionsEl` を除く）。
+- stage は抽選ロジック・DBに一切触れない。app.js は演出の DOM に触らない（`resultActionsEl` と、画面ホスト `#screen-host` への画面の出し入れを除く）。
+- 賞の名称・景品名は draw のスナップショット（スタッフが編集できる）をそのまま使う。コードに名称を埋め込まない。
+- E2E 用フック（data-testid）：`screen-choose|student|wheel|closed|error|fatal`, `choose-student|guest`, `tenkey-*`, `student-error`, `spin-button`, `wheel`, `back`, `result-card`, `ok-button`, `error-back`, `logo`, `pin-*`, スタッフ画面の各 testid。
 
-## 10. デザイン方針「青空の宝船」
 
-- 明るい空（`--sky-top`→`--sky-bottom`）、ゆっくり流れる雲、画面下に何層かの波（視差でゆらぐ）、カモメが時々横切る。
-- 右側：**ガチャ機＝宝船の操舵台**。ガラスドームの中に小さな宝箱型カプセルが詰まっている。木製の台座に真鍮の金具、正面に大きな**木製の舵輪**（8本スポーク・真鍮のハブ・持ち手）。取り出し口は船の大砲口風・または錨の飾り。
-- 左側：参加操作パネル（生成りの紙/羊皮紙風カード、海の青のボタン、大きな日本語）。
-- 演出：舵輪が勢いよく回る（ラチェット音）→ ドーム内の宝箱がシャッフル → 1つが取り出し口から落ちて弾む → 画面中央へ寄りながら拡大 → 揺れる（ここで系統色の光が漏れて期待感） → 蓋が開き光線 → 結果カードがせり上がる。
-  - sponsor：金の宝箱に変化、虹〜金の光線、紙吹雪＋金貨、きらめき、ファンファーレ。
-  - rare：銀〜水色のホロ光、星のきらめき、短いファンファーレ。
-  - sticker：木の宝箱、ポップな紙吹雪少量、明るいジングル。
-- 文字は日本語で大きく、コントラスト確保。操作文言は海賊用語だけにしない。
+## 10. デザイン方針「Festival Key Visual」
+
+現代の日本の祭りポスターが動き出す、というコンセプト。紙色の地にベタ塗りの色面、紙の粒子、印刷の版ズレ（オフセットの影）。グラデーション・グロー・光沢・紙吹雪・コインは使わない。
+
+- パレット：紙 `#EEEADB`／群青 `#1A33E0`／インク紺 `#0A0E33`／信号赤 `#F23B20`。
+- 書体：Dela Gothic One（日本語の見出し）／Zen Kaku Gothic New 700（本文）／Archivo 900（欧文・数字）／DM Mono 500（キャプション）。`font-display: block`＋preload。
+- 画面は 横1180×820・縦820×1180 を基準にした固定構図で、画面に収まる最大の等倍で拡縮する（`fitStage`）。細長い画面では論理サイズが広がり、各要素は端に固定されて伸びる。縦置きは構図を別に組み替える（`#stage[data-o=p]`）。
+- 画面：区分選択（巨大な「YoSoro!」＋ 01/02 の2行＋右下の舵輪マーク）／学籍番号（ベタ塗りの大きなテンキー・版ズレの表示欄・赤いラベルのエラー）／舵輪（目盛りのダイヤル＋進捗の赤い弧）／終了・エラー・読込失敗（情報画面）。ロゴは各画面ヘッダ左の小さな文字マーク（3秒長押しでスタッフ画面）。
+- 演出（保存完了を 0 ms）：舵輪の空転 → シャッターの列ワイプ → 結果。系統ごとに色と振付が違う（順位ではなく系統）：
+  - 協賛特別賞：群青と赤の縦シャッター → 赤い面に巨大なタイトルカード（1文字ずつマスクから迫り上がる）→ 文字が全部退いてから結果が登場。結果は赤の面＋ハーフトーン。
+  - レアステッカー賞：紙が降りて、中央から群青が割れる → 群青の面に紙色の文字（色の反転）。
+  - ステッカー賞：群青が1枚横切る → 落ち着いた紙の面。
+  - 結果の登場：ヘッダ → 賞の名称（1文字ずつスラム）→ 罫線 → 景品名 → 「この画面のまま…」→ 抽選番号のスタンプ（揺れ）→ スタッフのボタン。
+- 賞に順位をつけない：Latin ラベルは非序数（`SPONSOR AWARD`／`RARE STICKER`／`STICKER`）。ステッカー賞の右肩は抽選の連番（`DRAW 0044`）で、賞の序列ではない。
+- 景品名は 1 行に収まるよう自動で縮小し、小さくなりすぎるときだけ文節の切れ目で折り返す（`splitPhrases`）。タイトルカードも賞の名称の長さに合わせて行分け・縮小する。
+- 性能（iPad Safari）：動かすのは transform / opacity / clip-path / visibility のみ。紙の粒子は静止タイル1枚（ブレンドなし）。アイドル中は rAF を回さない（空転中だけ）。
 - 管理用情報（残数・確率）はプレイヤー画面に出さない。

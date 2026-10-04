@@ -1,52 +1,28 @@
-/* YoSoro! お宝ガチャ — 共有デザイントークン（全モジュール共通。値の追加はOK、既存名の変更は不可） */
+/* YoSoro! お宝ガチャ — 共有デザイントークン「Festival Key Visual」
+   フラットな色＋紙の粒子＋版ズレ（オフセット影）。グラデーション・光沢・ぼかし影は使わない。 */
+@font-face { font-family: "Dela"; src: url("../fonts/dela-gothic-one.woff2") format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: "Zen"; src: url("../fonts/zen-kaku-gothic-new-700.woff2") format("woff2"); font-weight: 700; font-display: block; }
+@font-face { font-family: "Arc"; src: url("../fonts/archivo-900.woff2") format("woff2"); font-weight: 900; font-display: block; }
+@font-face { font-family: "Mono"; src: url("../fonts/dm-mono-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
+
 :root {
-  /* 基本パレット（青空の宝船） */
-  --sea: #155e7d;
-  --sea-deep: #0d3f56;
-  --sea-light: #3fa7c9;
-  --sky-top: #6cc6ec;
-  --sky-bottom: #d9f1fb;
-  --paper: #f8f3e7;      /* 生成り */
-  --ink: #213e4a;        /* 濃い文字 */
-  --ink-soft: #4d6670;
-  --wood: #805438;
-  --wood-dark: #5a3823;
-  --wood-light: #a9754f;
-  --brass: #d5ad59;
-  --brass-light: #f1d48f;
-  --brass-dark: #9c7a2e;
-  --white: #ffffff;
-  --danger: #c0392b;
-  --ok: #2e8b57;
+  --paper: #EEEADB;
+  --blue: #1A33E0;
+  --ink: #0A0E33;
+  --red: #F23B20;
 
-  /* 賞の系統色（順位ではなく演出の系統） */
-  --tier-sponsor: #e9b53c;   /* 協賛特別賞：金 */
-  --tier-sponsor-glow: #fff2b8;
-  --tier-rare: #7fc8e8;      /* レアステッカー賞：虹/銀 */
-  --tier-rare-glow: #e6f7ff;
-  --tier-sticker: #e07a5f;   /* ステッカー賞：珊瑚 */
-  --tier-sticker-glow: #ffe3d8;
+  --ink-soft: rgba(10, 14, 51, 0.62);
+  --danger: var(--red);
 
-  /* 文字 */
-  --font: "Hiragino Maru Gothic ProN", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
-          "BIZ UDPGothic", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif;
-  --fs-xxl: clamp(2.6rem, 5.2vw, 4.6rem);
-  --fs-xl: clamp(2rem, 3.6vw, 3.1rem);
-  --fs-l: clamp(1.4rem, 2.4vw, 2rem);
-  --fs-m: clamp(1.1rem, 1.7vw, 1.4rem);
-  --fs-s: clamp(0.9rem, 1.2vw, 1.05rem);
+  --f-disp: "Dela", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+  --f-body: "Zen", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+  --f-num: "Arc", "Arial Black", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* 形 */
-  --radius-l: 28px;
-  --radius-m: 18px;
-  --radius-s: 10px;
-  --shadow-card: 0 10px 30px rgba(13, 63, 86, 0.18), 0 2px 6px rgba(13, 63, 86, 0.12);
-  --shadow-btn: 0 6px 0 var(--sea-deep), 0 10px 18px rgba(13, 63, 86, 0.25);
+  --ease-hard: cubic-bezier(.77, 0, .18, 1);
+  --ease-slam: cubic-bezier(.16, 1, .3, 1);
 
   /* 重なり順 */
-  --z-bg: 0;
-  --z-main: 10;
-  --z-reveal: 100;
   --z-modal: 200;
   --z-admin: 300;
 }
