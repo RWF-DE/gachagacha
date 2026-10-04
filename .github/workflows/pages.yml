@@ -1,0 +1,68 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Unit tests
+        run: node --test tests/*.test.mjs
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Assemble _site (runtime files only)
+        run: |
+          rm -rf _site
+          mkdir _site
+          cp index.html sw.js manifest.webmanifest _site/
+          cp -r css js fonts icons _site/
+          touch _site/.nojekyll
+      - name: Check every sw.js PRECACHE entry exists in _site
+        run: |
+          node -e "
+          const fs = require('fs'), path = require('path');
+          const src = fs.readFileSync('_site/sw.js', 'utf8');
+          const m = src.match(/const PRECACHE = (\[[\s\S]*?\]);/);
+          if (!m) { console.error('PRECACHE not found in sw.js'); process.exit(1); }
+          const list = JSON.parse(m[1].replace(/'/g, '\"').replace(/,\s*\]/, ']'));
+          const missing = list.filter((u) => {
+            const rel = (u === './' || u === '') ? 'index.html' : u.replace(/^\.\//, '');
+            return !fs.existsSync(path.join('_site', rel));
+          });
+          if (missing.length) { console.error('Missing from _site:', missing); process.exit(1); }
+          console.log('PRECACHE ok:', list.length, 'entries');
+          "
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -4,7 +4,7 @@
 **インターネットがなくても iPad の中だけで動きます**（静的 HTML/CSS/JS + Service Worker + IndexedDB の PWA）。
 ビルド作業・外部サービス・外部CDNは不要です。仕様の詳細は [docs/DESIGN.md](docs/DESIGN.md) を参照してください。
 
-- 参加者：「本校の学生」は学籍番号を入力（電波祭の両日で1回）、「本校学生以外」は入力なしで1回。個人情報は集めません。
+- 参加者：「本校の学生」は学籍番号（既定は数字7桁ちょうど。スタッフ画面で変更可）を入力（電波祭の両日で1回）、「本校学生以外」は入力なしで1回。個人情報は集めません。
 - 抽選：日ごとに独立した「引いたら戻さないくじ箱」。乱数は `crypto.getRandomValues`。結果は **IndexedDB に保存が完了してから** 演出が始まります。
 - スタッフ：結果画面の「お渡し済み・OK」を **1秒長押し** で確定し、次の人へ進みます。
 
@@ -31,8 +31,7 @@ tests/ lottery.test.mjs（単体）・e2e.mjs（Playwright）
 → `https://denpasai.jp/gacha/` で開けます。
 
 ### B. GitHub Pages
-リポジトリの Settings → Pages → **Build and deployment: Deploy from a branch** を選び、ブランチ（例：`main`）と `/ (root)` を指定します。
-→ `https://<ユーザー名>.github.io/gachagacha/` で開けます。
+`main` への push で GitHub Actions が自動デプロイします（下の「iPadで動作確認（GitHub Pages）」を参照）。
 
 ### 更新して再公開するとき
 ファイルを変更したら **`sw.js` の先頭の `VERSION` を 1 つ上げて** から公開してください（上げないと iPad は古いキャッシュを使い続けます）。
@@ -49,6 +48,15 @@ iPad 側では、スタッフ画面の「状態」→「更新を適用」で切
 5. **ホーム画面のアイコンから起動**する（以後はこちらを使う。Safari で開いたデータとは別の保存領域になることがあるため、セットアップはアイコンから起動した状態でやり直すのが確実）。
 6. **機内モードにして**、アイコンから起動して抽選が最後までできることを確認する（リハーサル）。
 7. リハーサルのデータは、スタッフ画面「バックアップ・リセット」→ **本番リセット**（「リセット」と入力＋PIN）で消す。
+
+## iPadで動作確認（GitHub Pages）
+
+- `main` へ push すると、GitHub Actions（`.github/workflows/pages.yml`）が単体テストを実行し、通れば実行に必要なファイルだけを GitHub Pages にデプロイします（Actions タブから手動実行も可）。
+- **初回のみ**：リポジトリの Settings → Pages → Source を **「GitHub Actions」** にしてください。
+- URL：https://rwf-de.github.io/gachagacha/ （組織名は小文字）
+- iPad の Safari でこの URL を開き、上の「iPad への入れ方」の手順で確認します。
+- 注意：**非公開リポジトリの Pages は GitHub Team 以上のプランが必要**です。使えない場合は、上の「A. denpasai.jp」の `public/gacha/` に置くか、リポジトリを公開にしてください。
+- 更新して再デプロイするときは、これまで通り `sw.js` の `VERSION` を上げてください。
 
 ## 当日の運用チェックリスト
 

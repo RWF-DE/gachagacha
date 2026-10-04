@@ -27,7 +27,7 @@ export function createDefaultConfig() {
       { id: 'sticker-ibaraki', categoryId: 'sticker', name: '茨城コラボステッカー', countUnknown: true },
       { id: 'sticker-denpasai', categoryId: 'sticker', name: '電波祭ステッカー', countUnknown: false },
     ],
-    studentIdRule: { charset: 'digits', minLength: 5, maxLength: 10 },
+    studentIdRule: { charset: 'digits', minLength: 7, maxLength: 7 },
     pinHash: null,
     sound: { enabled: true, volume: 0.7 },
   };

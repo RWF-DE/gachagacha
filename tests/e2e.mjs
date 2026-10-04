@@ -163,7 +163,7 @@ try {
   page = await context.newPage();
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`console.error: ${m.text()}`); });
-  page.on('console', (m) => { const t = m.text(); if (/12345|54321|99999/.test(t)) errors.push(`student id leaked to console: ${t}`); });
+  page.on('console', (m) => { const t = m.text(); if (/2412345|2454321|2499999/.test(t)) errors.push(`student id leaked to console: ${t}`); });
   const downloadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gacha-e2e-'));
   console.log(`E2E root: ${ROOT}\nURL: ${BASE}\n`);
 
@@ -235,10 +235,10 @@ try {
     await waitScreen('choose');
     await page.click(tid('choose-student'));
     await waitScreen('student');
-    await pressKeys('tenkey', '123');
+    await pressKeys('tenkey', '241');
     await page.click(tid('tenkey-ok'));
     assert.ok((await page.textContent(tid('student-error'))).includes('入力してください'), '桁数不足のエラー');
-    await pressKeys('tenkey', '45');
+    await pressKeys('tenkey', '2345');
     await page.click(tid('tenkey-ok'));
     const rec = await spinAndWaitResult();
     assert.equal(rec.label, '1-0002');
@@ -246,12 +246,12 @@ try {
     await confirmResult();
     await waitScreen('choose');
     const d = await dumpDb();
-    assert.deepEqual(d.students.map((s) => [s.studentId, s.drawId]), [['12345', '1-0002']]);
+    assert.deepEqual(d.students.map((s) => [s.studentId, s.drawId]), [['2412345', '1-0002']]);
   });
 
   await step('同じ学籍番号はリロード後も拒否される（抽選は増えない）', async () => {
     await page.reload();
-    await startStudent('12345');
+    await startStudent('2412345');
     await page.waitForFunction(() => document.querySelector('[data-testid="student-error"]')?.textContent.includes('参加済み'));
     assert.ok(!(await page.locator(tid('screen-wheel')).count()), '舵輪画面へ進まない');
     const d = await dumpDb();
@@ -261,17 +261,17 @@ try {
   });
 
   await step('学籍番号を入れて戻っても「参加済み」にならない', async () => {
-    await startStudent('54321');
+    await startStudent('2454321');
     await waitScreen('wheel');
     await page.click(tid('back'));
     await waitScreen('choose');
     const d = await dumpDb();
-    assert.ok(!d.students.some((s) => s.studentId === '54321'));
+    assert.ok(!d.students.some((s) => s.studentId === '2454321'));
     assert.equal(d.draws.length, 2);
   });
 
   await step('連打・同時発火でも抽選は1回だけ／未確認中は新規抽選不可', async () => {
-    await startStudent('54321');
+    await startStudent('2454321');
     await waitScreen('wheel');
     await page.evaluate(() => {
       const s = document.querySelector('[data-testid="spin-button"]');
@@ -282,13 +282,13 @@ try {
     await sleep(500);
     const d = await dumpDb();
     assert.equal(d.draws.length, 3, '抽選は合計3件（連打で増えない）');
-    assert.equal(d.students.filter((s) => s.studentId === '54321').length, 1);
+    assert.equal(d.students.filter((s) => s.studentId === '2454321').length, 1);
     assert.equal(d.inventory.find((r) => r.key === 'day1:sticker-denpasai').remaining, 3);
     // DB 層でも二重抽選を拒否
     const codes = await page.evaluate(async () => {
       const m = await import('./js/db.js');
       const out = [];
-      for (const args of [{ kind: 'guest' }, { kind: 'student', studentId: '99999' }]) {
+      for (const args of [{ kind: 'guest' }, { kind: 'student', studentId: '2499999' }]) {
         try { await m.draw(args); out.push('NO_ERROR'); } catch (e) { out.push(e.code); }
       }
       return out;
@@ -334,7 +334,7 @@ try {
   await step('履歴・在庫タブ：学籍番号マスク／確率表示／未確認の再表示', async () => {
     await openAdmin('history');
     const txt = await page.textContent(tid('tab-history'));
-    assert.ok(txt.includes('＊＊＊45') && !txt.includes('12345'), '学籍番号は末尾2桁以外を伏せる');
+    assert.ok(txt.includes('＊＊＊＊＊45') && !txt.includes('2412345'), '学籍番号は末尾2桁以外を伏せる');
     assert.ok(txt.includes('未確認'));
     await page.click(tid('tabbtn-inventory'));
     await page.waitForFunction(() => document.querySelector('[data-testid="tab-inventory"]')?.textContent.includes('%'));
@@ -468,7 +468,7 @@ try {
     await closeAdmin();
     await waitScreen('choose');
     // 学生は両日通して1回：1日目に使った学籍番号は2日目も不可
-    await startStudent('12345');
+    await startStudent('2412345');
     await page.waitForFunction(() => document.querySelector('[data-testid="student-error"]')?.textContent.includes('参加済み'));
     await page.click(tid('back'));
     await waitScreen('choose');

@@ -86,15 +86,27 @@ test('normalizeStudentId: 全角→半角・trim・大文字化', () => {
   assert.equal(normalizeStudentId(12345), '12345');
 });
 
-test('validateStudentId: 既定ルール（数字のみ 5〜10桁）', () => {
-  const rule = { charset: 'digits', minLength: 5, maxLength: 10 };
-  assert.deepEqual(validateStudentId('12345', rule), { ok: true });
-  assert.deepEqual(validateStudentId('0123456789', rule), { ok: true });
-  assert.equal(validateStudentId('1234', rule).reason, 'too_short');
-  assert.equal(validateStudentId('12345678901', rule).reason, 'too_long');
-  assert.equal(validateStudentId('12a45', rule).reason, 'charset');
+test('validateStudentId: 既定ルール（数字のみ 7桁ちょうど）', () => {
+  const rule = createDefaultConfig().studentIdRule;
+  assert.deepEqual(rule, { charset: 'digits', minLength: 7, maxLength: 7 });
+  assert.deepEqual(validateStudentId('2412345', rule), { ok: true });
+  assert.equal(validateStudentId('241234', rule).reason, 'too_short');     // 6桁は不可
+  assert.equal(validateStudentId('24123456', rule).reason, 'too_long');    // 8桁は不可
+  assert.equal(validateStudentId('24123a5', rule).reason, 'charset');
   assert.equal(validateStudentId('', rule).reason, 'empty');
-  assert.equal(validateStudentId('12 45', rule).reason, 'charset');
+  assert.equal(validateStudentId('241 345', rule).reason, 'charset');
+});
+
+test('既定ルール: 先頭ゼロの7桁は受理され、文字列のまま保持される', () => {
+  const rule = createDefaultConfig().studentIdRule;
+  const id = normalizeStudentId('０１２３４５６');   // 全角入力でも正規化後は半角文字列
+  assert.equal(typeof id, 'string');
+  assert.equal(id, '0123456');
+  assert.deepEqual(validateStudentId(id, rule), { ok: true });
+  assert.equal(normalizeStudentId('0123456'), '0123456');
+  assert.deepEqual(validateStudentId('0123456', rule), { ok: true });
+  assert.equal(validateStudentId(normalizeStudentId(' 012345 '), rule).reason, 'too_short');
+  assert.equal(validateStudentId(normalizeStudentId('01234567'), rule).reason, 'too_long');
 });
 
 test('validateStudentId: 英数字ルール', () => {
