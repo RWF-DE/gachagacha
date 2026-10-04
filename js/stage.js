@@ -21,6 +21,7 @@ const WCY = 586;
 const WR = 172; // 舵輪SVGの半径（持ち手の先端まで）
 const BW = 420; // 演出用の宝箱の基準サイズ
 const BH = Math.round((BW * 170) / 200);
+const LID_OPEN = -164; // 開いた蓋の角度（内側の布地が正面に見え、少し奥へ倒れる）
 const TURN_DEG = 120;
 const DETENT = 45;
 const TAU = Math.PI * 2;
@@ -94,7 +95,7 @@ function chestParts(id, p) {
     grad('h', [[0, p.band[0]], [0.5, p.band[1]], [1, p.band[2]]]) +
     grad('v', [[0, p.band[2]], [0.28, p.band[0]], [0.62, p.band[1]], [1, p.band[2]]], 1, 0) +
     `<radialGradient id="${id}r" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#fffbe8"/><stop offset=".55" stop-color="${p.band[1]}"/><stop offset="1" stop-color="${p.band[2]}"/></radialGradient>` +
-    `<radialGradient id="${id}in" cx=".5" cy="1" r="1"><stop offset="0" stop-color="${p.glow}"/><stop offset=".6" stop-color="${p.inner}"/><stop offset="1" stop-color="${p.inner}"/></radialGradient>` +
+    `<radialGradient id="${id}in" cx=".5" cy="1" r="1.05"><stop offset="0" stop-color="${p.glow}"/><stop offset=".42" stop-color="${hexMix(p.glow, p.inner, 0.5)}"/><stop offset=".8" stop-color="${hexMix(p.inner, p.glow, 0.12)}"/><stop offset="1" stop-color="${p.inner}"/></radialGradient>` +
     `<clipPath id="${id}ca"><path d="${ARCH}"/></clipPath><clipPath id="${id}cb"><path d="${FRONT}"/></clipPath>` +
     (p.holo
       ? `<linearGradient id="${id}ho" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="70" y2="0" gradientTransform="rotate(30)" spreadMethod="repeat">
@@ -153,6 +154,11 @@ function chestParts(id, p) {
 
   const lidIn = `
     <path d="${ARCH}" fill="url(#${id}in)"/>
+    <g clip-path="url(#${id}ca)" fill="none" stroke="${p.glow}" stroke-opacity=".34" stroke-width="1.3">
+      <path d="M-10 30 L60 100 M20 20 L100 100 M70 18 L150 100 M120 18 L200 100 M170 24 L210 70"/>
+      <path d="M210 30 L140 100 M180 20 L100 100 M130 18 L50 100 M80 18 L0 100 M30 24 L-10 70"/>
+    </g>
+    <ellipse cx="100" cy="86" rx="70" ry="9" fill="${p.glow}" opacity=".55"/>
     <path d="M14 92 L14 64 Q14 22 100 22 Q186 22 186 64 L186 92" fill="none" stroke="url(#${id}h)" stroke-width="7" stroke-linejoin="round"/>`;
 
   return { defs, base, lid, lidIn };
@@ -169,6 +175,29 @@ function capsuleDefs(prefix) {
     syms += `<symbol id="${prefix}cap${i}" viewBox="0 0 200 170">${c.base}${c.lid}</symbol>`;
   });
   return `<defs>${defs}${syms}</defs>`;
+}
+
+/** 開封時に縁からこぼれる金貨の山（200x44 の viewBox。下端が宝箱の縁の少し下） */
+function heapSVG() {
+  const id = nextId();
+  const coin = (x, y, r, k) => `<g transform="translate(${x} ${y}) rotate(${(k * 37) % 40 - 20})">
+      <ellipse rx="${r}" ry="${r}" fill="url(#${id}c)" stroke="#a8740c" stroke-width="1.3"/>
+      <ellipse rx="${f1(r * 0.62)}" ry="${f1(r * 0.62)}" fill="none" stroke="#fff3b0" stroke-opacity=".75" stroke-width="1.1"/>
+      <path d="M${f1(-r * 0.4)} ${f1(-r * 0.5)} Q0 ${f1(-r * 0.8)} ${f1(r * 0.4)} ${f1(-r * 0.5)}" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1.1" stroke-linecap="round"/></g>`;
+  const rows = [
+    [14, 8, [64, 88, 112, 136]],
+    [20, 8.6, [48, 74, 100, 126, 152]],
+    [27, 9, [30, 56, 84, 112, 140, 168]],
+  ];
+  let k = 0;
+  let coins = '';
+  rows.forEach(([y, r, xs]) => xs.forEach((x) => { coins += coin(x + ((k * 7) % 5) - 2, y + ((k * 3) % 3) - 1, r, k++); }));
+  const gem = (x, y, c1, c2) => `<path d="M${x} ${y - 9} L${x + 8} ${y - 2} L${x} ${y + 8} L${x - 8} ${y - 2} Z" fill="${c1}" stroke="${c2}" stroke-width="1.2" stroke-linejoin="round"/><path d="M${x - 8} ${y - 2} H${x + 8} M${x} ${y - 9} L${x - 3} ${y - 2} L${x} ${y + 8} L${x + 3} ${y - 2} Z" fill="none" stroke="#fff" stroke-opacity=".65" stroke-width=".9"/>`;
+  return `<svg viewBox="0 0 200 44" aria-hidden="true" focusable="false"><defs>
+      <radialGradient id="${id}c" cx=".35" cy=".3" r=".85"><stop offset="0" stop-color="#fffbe0"/><stop offset=".5" stop-color="#ffd84f"/><stop offset="1" stop-color="#d9962a"/></radialGradient></defs>
+    ${coins}
+    ${gem(46, 30, '#ff7aa5', '#a02b55')}${gem(154, 31, '#6fd7ff', '#1f6f98')}
+    <circle cx="104" cy="31" r="6" fill="#fff" stroke="#c9c2d8" stroke-width="1"/><circle cx="102" cy="29" r="2" fill="#fff" opacity=".9"/></svg>`;
 }
 
 /** 演出用の宝箱 1レイヤー（base / lid / lid内側 を別DOMにして lid を3D回転） */
@@ -736,6 +765,7 @@ export function createStage(stageEl, opts = {}) {
         ${chestLayerHTML('silver', PAL.silver)}
         ${chestLayerHTML('gold', PAL.gold)}
       </div>
+      <div class="yg-heap">${heapSVG()}</div>
       <div class="yg-mouth"></div>
       <div class="yg-seam"></div>
       <div class="yg-flare"></div>
@@ -764,6 +794,22 @@ export function createStage(stageEl, opts = {}) {
   const lidsOf = (v) => $('.yg-ch-lid', layerOf(v));
   const confetti = createConfetti(ov); // 前面：開封の一瞬のはじけ
   const confettiBack = createConfetti(ov, { back: true }); // 背面：カードの後ろに降る（文字を隠さない）
+
+  /* 結果表示後にカードの高さ（OKボタンの装着）や画面の向きが変わっても、宝箱をスロットに追従させる */
+  function reposeChest() {
+    if (!ov.classList.contains('is-shown') || destroyed) return;
+    live = live.filter((a) => {
+      try {
+        if (a.effect && a.effect.target === chest && a.effect.getKeyframes().some((k) => k.transform !== undefined)) { a.cancel(); return false; }
+      } catch (e) { /* noop */ }
+      return true;
+    });
+    const sp = slotPose();
+    chest.style.transform = poseT(sp.cx, sp.cy, sp.s);
+  }
+  const roOv = typeof ResizeObserver === 'function' ? new ResizeObserver(reposeChest) : null;
+  roOv?.observe(card);
+  roOv?.observe(slotEl);
 
   /* ---------- 状態 ---------- */
   let interactive = false;
@@ -1081,7 +1127,7 @@ export function createStage(stageEl, opts = {}) {
     ov.classList.add('is-reduced', 'is-on');
     showTierLayer(tier);
     ov.classList.add('is-open');
-    lids.forEach((l) => { l.style.transform = 'rotateX(-122deg)'; });
+    lids.forEach((l) => { l.style.transform = `rotateX(${LID_OPEN}deg)`; });
     const sp = slotPose();
     chest.style.transform = poseT(sp.cx, sp.cy, sp.s);
     backdrop.style.opacity = '';
@@ -1198,7 +1244,7 @@ export function createStage(stageEl, opts = {}) {
     /* 5) 結果カードがせり上がる */
     const rise = Promise.all([
       run(chest, [{ transform: poseT(C.cx, C.cy, S, 0) }, { transform: poseT(sp.cx, sp.cy, sp.s, 0) }], { duration: 560, easing: 'cubic-bezier(.2,.8,.25,1)' }),
-      run(chestGlow, [{ opacity: 1 }, { opacity: 0.8 }], { duration: 560 }),
+      run(chestGlow, [{ opacity: 1 }, { opacity: 0.6 }], { duration: 560 }),
       run(card, [
         { opacity: 0, transform: 'translateY(90px) scale(.86)' },
         { opacity: 1, transform: 'translateY(-6px) scale(1.015)', offset: 0.75 },
@@ -1233,8 +1279,8 @@ export function createStage(stageEl, opts = {}) {
     lids.forEach((l) => {
       run(l, [
         { transform: 'rotateX(0deg)' },
-        { transform: 'rotateX(-140deg)', offset: 0.55, easing: 'ease-in-out' },
-        { transform: 'rotateX(-122deg)' },
+        { transform: 'rotateX(-178deg)', offset: 0.55, easing: 'ease-in-out' },
+        { transform: `rotateX(${LID_OPEN}deg)` },
       ], { duration: 520, easing: 'cubic-bezier(.2,.9,.3,1)' });
     });
     // 本体のはずみ
@@ -1245,7 +1291,7 @@ export function createStage(stageEl, opts = {}) {
     ], { duration: 520, easing: 'ease-out' });
     run(flash, [{ opacity: 0 }, { opacity: sponsor ? 0.95 : 0.8, offset: 0.12 }, { opacity: 0 }], { duration: sponsor ? 700 : 520, easing: 'ease-out' });
     run(seam, [{ opacity: 1 }, { opacity: 0 }], { duration: 300 });
-    run(mouth, [{ opacity: 0, transform: 'scaleY(.1)' }, { opacity: 1, transform: 'scaleY(1)', offset: 0.3 }, { opacity: 0.32, transform: 'scaleY(.8)' }], { duration: 900, easing: 'ease-out' });
+    run(mouth, [{ opacity: 0, transform: 'scaleY(.1)' }, { opacity: 1, transform: 'scaleY(1)', offset: 0.3 }, { opacity: 0.5, transform: 'scaleY(.85)' }], { duration: 900, easing: 'ease-out' });
     run(flare, [{ opacity: 0, transform: 'scale(.2)' }, { opacity: 1, transform: 'scale(1.1)', offset: 0.3 }, { opacity: 0, transform: 'scale(1.8)' }], { duration: 700, easing: 'ease-out' });
     run(rayA, [{ opacity: 0, transform: 'scale(.3) rotate(0deg)' }, { opacity: 1, transform: 'scale(1) rotate(25deg)' }], { duration: 800, easing: 'ease-out' });
     if (sponsor || tier === 'rare') run(rayB, [{ opacity: 0, transform: 'scale(.3) rotate(0deg)' }, { opacity: 1, transform: 'scale(1) rotate(-25deg)' }], { duration: 900, easing: 'ease-out' });
@@ -1386,6 +1432,7 @@ export function createStage(stageEl, opts = {}) {
       cancelLive();
       if (raf) cancelAnimationFrame(raf);
       ro?.disconnect();
+      roOv?.disconnect();
       window.removeEventListener('resize', onWinResize);
       confetti.destroy(); confettiBack.destroy();
       ov.remove();

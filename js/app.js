@@ -27,6 +27,7 @@ let navToken = 0;          // 画面遷移ごとに増やし、古い非同期�
 let drawing = false;       // 抽選開始ガード（1回だけ）
 let idleTimer = 0;
 
+const MSG_USED = 'この学籍番号では/参加済みです。/スタッフに/確認してください';
 const safe = (fn) => { try { return fn(); } catch { /* 演出系の失敗で運用を止めない */ } };
 const play = (name) => safe(() => sound.play(name));
 
@@ -51,9 +52,39 @@ function mount(name, ...children) {
   return el;
 }
 
+// 日本語の見出し・ボタンは「文節」でだけ折り返す。'/' が文節の区切り（表示はされない）。
+// 各文節を inline-block にするので、幅が足りないときは文節の途中ではなく文節の境目で改行される。
+const jp = (...parts) => parts.flatMap((p) => (Array.isArray(p) ? p : String(p).split('/')))
+  .filter((t) => t !== '').map((t) => h('span', { class: 'ph' }, t));
+const setMsg = (el, ...parts) => el.replaceChildren(...jp(...parts));
+
 const bigButton = (label, onclick, { kind = 'primary', testid, sub } = {}) =>
   h('button', { type: 'button', class: `btn btn--${kind} btn--xl`, 'data-testid': testid, onclick: () => { play('tap'); onclick(); } },
-    h('span', { class: 'btn-label' }, label), sub ? h('span', { class: 'btn-sub' }, sub) : null);
+    h('span', { class: 'btn-label' }, jp(label)), sub ? h('span', { class: 'btn-sub' }, jp(sub)) : null);
+
+// 真鍮の銘板（画面上部の飾り）。大: choose の見出し（h1）／小: ほかの画面の飾り
+const anchorIcon = () => {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '-22 -24 44 44');
+  svg.setAttribute('class', 'plate-ic');
+  svg.setAttribute('aria-hidden', 'true');
+  const g = document.createElementNS(NS, 'g');
+  g.setAttribute('fill', 'none'); g.setAttribute('stroke', 'currentColor'); g.setAttribute('stroke-width', '3.6');
+  g.setAttribute('stroke-linecap', 'round'); g.setAttribute('stroke-linejoin', 'round');
+  for (const d of ['M0 -12 V15 M-8 -8 H8', 'M-15 3 Q-13 15 0 16 Q13 15 15 3', 'M-15 3 L-19 8 M-15 3 L-10.5 6.5 M15 3 L19 8 M15 3 L10.5 6.5']) {
+    const path = document.createElementNS(NS, 'path'); path.setAttribute('d', d); g.append(path);
+  }
+  const c = document.createElementNS(NS, 'circle');
+  c.setAttribute('cx', '0'); c.setAttribute('cy', '-16'); c.setAttribute('r', '4.2'); g.append(c);
+  svg.append(g);
+  return svg;
+};
+const plate = (tag, small, eb, title) =>
+  h(tag, { class: `plate${small ? ' plate--s' : ''}`, 'aria-hidden': small ? 'true' : null },
+    anchorIcon(),
+    h('span', { class: 'plate-tx' }, h('span', { class: 'plate-eb' }, jp(eb || '')), h('span', { class: 'plate-ti' }, jp(title))),
+    anchorIcon());
 
 // ---------- 各画面 ----------
 function showChoose() {
@@ -61,12 +92,11 @@ function showChoose() {
   kind = null; studentId = null; drawing = false;
   safe(() => { stage.setInteractive(false); stage.setAttract(true); scene.setMood('idle'); });
   mount('choose',
-    h('p', { class: 'eyebrow' }, config.eventName),
-    h('h1', { class: 'title' }, 'お宝ガチャ'),
-    h('p', { class: 'lead' }, 'おひとり1回・参加無料'),
+    plate('h1', false, config.eventName, 'お宝ガチャ'),
+    h('p', { class: 'lead' }, jp('おひとり1回・/参加無料')),
     h('div', { class: 'choices' },
-      bigButton('本校の学生', () => showStudent(), { testid: 'choose-student', sub: '学籍番号を入力します' }),
-      bigButton('本校学生以外の方', () => { kind = 'guest'; showWheel(); }, { testid: 'choose-guest', kind: 'secondary', sub: '入力は不要です' })),
+      bigButton('本校の学生', () => showStudent(), { testid: 'choose-student', sub: '学籍番号を/入力します' }),
+      bigButton('本校学生/以外の方', () => { kind = 'guest'; showWheel(); }, { testid: 'choose-guest', kind: 'secondary', sub: '入力は/不要です' })),
   );
 }
 
@@ -75,14 +105,14 @@ function showStudent(message = '') {
   kind = 'student'; studentId = null;
   safe(() => { stage.setInteractive(false); stage.setAttract(true); });
   const rule = config.studentIdRule;
-  const msg = h('p', { class: 'msg msg--error', role: 'alert', 'data-testid': 'student-error' }, message);
+  const msg = h('p', { class: 'msg msg--error', role: 'alert', 'data-testid': 'student-error' }, jp(message));
   let busy = false;
 
   const submit = async (raw) => {
     if (busy) return;
     const id = normalizeStudentId(raw);
     if (!validateStudentId(id, rule).ok) {
-      msg.textContent = `学籍番号は${describeIdRule(rule)}で入力してください`;
+      setMsg(msg, '学籍番号は', describeIdRule(rule), 'で/入力してください');
       play('error');
       return;
     }
@@ -91,13 +121,13 @@ function showStudent(message = '') {
     let used;
     try { used = await db.isStudentUsed(id); } catch {
       busy = false;
-      msg.textContent = '確認できませんでした。もう一度お試しください';
+      setMsg(msg, '確認できませんでした。/もう一度/お試しください');
       return;
     }
     busy = false;
     if (token !== navToken || state !== 'student') return;
     if (used) {
-      msg.textContent = 'この学籍番号では参加済みです。スタッフに確認してください';
+      setMsg(msg, MSG_USED);
       play('error');
       return;
     }
@@ -121,10 +151,10 @@ function showStudent(message = '') {
   }
 
   mount('student',
-    h('h1', { class: 'title title--m' }, '学籍番号を入力してください'),
+    h('h1', { class: 'title title--m' }, jp('学籍番号を/入力してください')),
     input,
     msg,
-    h('p', { class: 'note' }, '学籍番号は参加済みの確認だけに使います。'),
+    h('p', { class: 'note' }, jp('学籍番号は/参加済みの確認だけに/使います。')),
     h('div', { class: 'row' },
       h('button', { type: 'button', class: 'btn btn--ghost btn--lg', 'data-testid': 'back', onclick: () => { play('tap'); showChoose(); } }, '← 戻る')),
   );
@@ -135,8 +165,9 @@ function showWheel() {
   drawing = false;
   safe(() => { stage.setAttract(false); stage.setInteractive(true); });
   mount('wheel',
-    h('h1', { class: 'title' }, '舵輪を回して、お宝を引こう！'),
-    h('p', { class: 'lead' }, '舵輪をぐるっと回すか、「タップでまわす」を押してください。'),
+    plate('div', true, 'YoSoro!', 'お宝ガチャ'),
+    h('h1', { class: 'title' }, jp('舵輪を回して、/お宝を引こう！')),
+    h('p', { class: 'lead' }, jp('舵輪をぐるっと回すか、/「タップでまわす」を/押してください。')),
     h('div', { class: 'row' },
       h('button', { type: 'button', class: 'btn btn--ghost btn--lg', 'data-testid': 'back',
         onclick: () => { if (state === 'wheel' && !drawing) { play('tap'); showChoose(); } } }, '← 戻る')),
@@ -145,7 +176,7 @@ function showWheel() {
 
 function showDrawing() {
   setState('drawing');
-  mount('drawing', h('h1', { class: 'title' }, 'お宝をさがしています…'));
+  mount('drawing', h('h1', { class: 'title' }, jp('お宝を/さがしています…')));
 }
 
 function showClosed() {
@@ -153,17 +184,19 @@ function showClosed() {
   kind = null; studentId = null;
   safe(() => { stage.setInteractive(false); stage.setAttract(false); scene.setMood('calm'); });
   mount('closed',
-    h('h1', { class: 'title' }, '本日の抽選は終了しました'),
-    h('p', { class: 'lead' }, 'たくさんのご参加ありがとうございました！'),
+    plate('div', true, 'YoSoro!', 'お宝ガチャ'),
+    h('h1', { class: 'title' }, jp('本日の抽選は/終了しました')),
+    h('p', { class: 'lead' }, jp('たくさんの/ご参加/ありがとうございました！')),
   );
 }
 
-function showError(text = '保存できませんでした。スタッフを呼んでください') {
+function showError(text = '保存できませんでした。/スタッフを/呼んでください') {
   setState('error');
   safe(() => stage.setInteractive(false));
   mount('error',
-    h('h1', { class: 'title title--m' }, text),
-    h('p', { class: 'lead' }, '景品は決まっていません。もう一度はじめからお試しください。'),
+    plate('div', true, 'YoSoro!', 'お宝ガチャ'),
+    h('h1', { class: 'title title--m' }, jp(text)),
+    h('p', { class: 'lead' }, jp('景品は/決まっていません。/もう一度/はじめから/お試しください。')),
     h('div', { class: 'row' },
       h('button', { type: 'button', class: 'btn btn--primary btn--lg', 'data-testid': 'error-back', onclick: () => refresh() }, '最初にもどる')),
   );
@@ -172,8 +205,8 @@ function showError(text = '保存できませんでした。スタッフを呼�
 function showFatal() {
   setState('fatal');
   mount('fatal',
-    h('h1', { class: 'title title--m' }, 'データを開けません'),
-    h('p', { class: 'lead' }, 'スタッフを呼んでください。'),
+    h('h1', { class: 'title title--m' }, jp('データを/開けません')),
+    h('p', { class: 'lead' }, jp('スタッフを/呼んでください。')),
     h('div', { class: 'row' },
       h('button', { type: 'button', class: 'btn btn--primary btn--lg', onclick: () => location.reload() }, '再読み込み')),
   );
@@ -201,14 +234,14 @@ async function onTurn() {
     drawing = false;
     play('error');
     const code = e && e.code;
-    if (code === 'ALREADY_USED') return showStudent('この学籍番号では参加済みです。スタッフに確認してください');
+    if (code === 'ALREADY_USED') return showStudent(MSG_USED);
     if (code === 'BOX_EMPTY') return showClosed();
     if (code === 'PENDING_EXISTS') return refresh();
     return showError();
   }
   studentId = null; // 保存後は学籍番号をメモリからも消す
   state = 'result';
-  mount('result', h('h1', { class: 'title title--m' }, '結果をスタッフにお見せください'));
+  mount('result', h('h1', { class: 'title title--m' }, jp('結果を/スタッフに/お見せください')));
   safe(() => scene.setMood('celebrate'));
   try {
     await stage.playReveal(toReveal(result));
@@ -235,8 +268,8 @@ function mountOkButton(drawId) {
   const btn = h('button', { type: 'button', class: 'ok-btn', 'data-testid': 'ok-button' },
     ring,
     h('span', { class: 'ok-text' },
-      h('span', { class: 'ok-label' }, 'お渡し済み・OK'),
-      h('span', { class: 'ok-hint' }, 'スタッフが1秒間 長押し')));
+      h('span', { class: 'ok-label' }, jp('お渡し済み・OK')),
+      h('span', { class: 'ok-hint' }, jp('スタッフが/1秒間 長押し'))));
   let finished = false;
   longPress(btn, {
     ms: LONG_PRESS_OK_MS,
@@ -250,7 +283,7 @@ function mountOkButton(drawId) {
       } catch {
         finished = false;
         btn.disabled = false;
-        status.textContent = '保存できませんでした。もう一度長押ししてください';
+        setMsg(status, '保存できませんでした。/もう一度/長押ししてください');
         return;
       }
       play('tap');
@@ -282,7 +315,7 @@ async function refresh() {
       // 未確認の抽選がある間は新規抽選させない。結果を再表示してスタッフOKを待つ。
       setState('result');
       safe(() => { stage.setInteractive(false); stage.setAttract(false); scene.setMood('celebrate'); });
-      mount('result', h('h1', { class: 'title title--m' }, '結果をスタッフにお見せください'));
+      mount('result', h('h1', { class: 'title title--m' }, jp('結果を/スタッフに/お見せください')));
       safe(() => stage.showResultStatic(toReveal(pending)));
       mountOkButton(pending.id);
       return;
