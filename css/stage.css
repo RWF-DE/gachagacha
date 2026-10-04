@@ -1,0 +1,476 @@
+/* YoSoro! お宝ガチャ — 背景・ガチャ機・舵輪・演出・結果カード（visual 担当）
+ * すべて .yg- 接頭辞でスコープ。body/html には触れない。
+ * 依存: css/tokens.css */
+
+/* ================================================================
+ * 背景シーン  #scene-bg  (createScene)
+ * ================================================================ */
+.yg-scene {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-bg, 0);
+  overflow: hidden;
+  pointer-events: none;
+  --yg-horizon: 60%;
+  background: var(--sky-bottom);
+}
+.yg-scene > * { position: absolute; pointer-events: none; }
+.yg-sky {
+  inset: 0;
+  background: linear-gradient(180deg, var(--sky-top) 0%, #8fd2f1 30%, #c4e9f8 52%, var(--sky-bottom) var(--yg-horizon));
+}
+.yg-sun {
+  right: -10vmax; top: -12vmax; width: 52vmax; height: 52vmax;
+  background: radial-gradient(circle, rgba(255, 253, 230, 0.95) 0, rgba(255, 246, 196, 0.6) 14%, rgba(255, 240, 180, 0.18) 36%, rgba(255, 240, 180, 0) 62%);
+  transition: transform 1.4s ease, opacity 1.4s ease;
+}
+.yg-sunrays {
+  right: -34vmax; top: -34vmax; width: 96vmax; height: 96vmax;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0) 0deg, rgba(255, 255, 255, 0.4) 4deg, rgba(255, 255, 255, 0) 8deg, rgba(255, 255, 255, 0) 18deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0, rgba(0, 0, 0, 0.6) 30%, transparent 62%);
+  mask-image: radial-gradient(circle, #000 0, rgba(0, 0, 0, 0.6) 30%, transparent 62%);
+  opacity: 0;
+  transition: opacity 1.4s ease;
+  animation: yg-rot 70s linear infinite;
+  animation-play-state: paused;
+  will-change: transform;
+}
+.yg-scene[data-mood="celebrate"] .yg-sunrays { opacity: 0.85; animation-play-state: running; }
+.yg-scene[data-mood="celebrate"] .yg-sun { transform: scale(1.18); }
+
+/* 雲 */
+.yg-clouds { left: 0; right: 0; top: 0; height: 58%; }
+.yg-cloud {
+  position: absolute; left: 0;
+  transform-origin: 0 50%;
+  will-change: transform;
+  animation: yg-drift var(--dur, 240s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+.yg-cloud svg { display: block; filter: drop-shadow(0 6px 8px rgba(70, 140, 180, 0.12)); }
+@keyframes yg-drift {
+  from { transform: translate3d(-36vw, 0, 0) scale(var(--sc, 1)); }
+  to { transform: translate3d(112vw, 0, 0) scale(var(--sc, 1)); }
+}
+
+/* 水平線の景色（島・灯台・遠くの船） */
+.yg-far { left: 0; right: 0; top: calc(var(--yg-horizon) - 140px); height: 140px; overflow: hidden; }
+.yg-lighthouse { position: absolute; right: 3%; bottom: -8px; width: 150px; opacity: 0.88; }
+.yg-lighthouse svg { width: 100%; height: auto; display: block; }
+.yg-lh-glow { animation: yg-blink 4.2s ease-in-out infinite; }
+.yg-ship {
+  position: absolute; left: 0; bottom: -2px; width: 120px; opacity: 0.8;
+  will-change: transform;
+  animation: yg-sail 520s linear infinite;
+  animation-delay: -180s;
+}
+.yg-ship-bob { animation: yg-bobY 6s ease-in-out infinite alternate; }
+.yg-ship svg { width: 100%; height: auto; display: block; }
+@keyframes yg-sail { from { transform: translate3d(-200px, 0, 0); } to { transform: translate3d(110vw, 0, 0); } }
+@keyframes yg-blink { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@keyframes yg-bobY { from { transform: translateY(0) rotate(-0.8deg); } to { transform: translateY(3px) rotate(0.8deg); } }
+
+.yg-haze {
+  left: 0; right: 0; top: calc(var(--yg-horizon) - 26px); height: 52px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.55) 55%, rgba(255, 255, 255, 0));
+}
+
+/* 海と波 */
+.yg-sea {
+  left: 0; right: 0; top: var(--yg-horizon); bottom: 0; overflow: hidden;
+  background: linear-gradient(180deg, #9ddcee 0%, #62bfdc 14%, var(--sea-light) 34%, #1e7ea3 70%, var(--sea) 100%);
+}
+.yg-glints { left: 0; right: 0; top: 0; height: 50%; }
+.yg-glints { position: absolute; }
+.yg-glint {
+  position: absolute; height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.9);
+  opacity: 0; animation: yg-glint var(--d, 3s) ease-in-out infinite;
+}
+@keyframes yg-glint {
+  0%, 100% { opacity: 0; transform: scaleX(0.3); }
+  50% { opacity: 0.9; transform: scaleX(1); }
+}
+.yg-wave {
+  position: absolute; left: 0; top: var(--top); width: 200%; height: calc(100% - var(--top) + 8px);
+  will-change: transform;
+  animation: yg-slide var(--dur, 30s) linear infinite;
+}
+.yg-wave-1, .yg-wave-3 { animation-direction: reverse; }
+.yg-wave-slide { position: absolute; inset: 0; display: flex; flex-direction: column; animation: yg-bobY2 var(--bob, 6s) ease-in-out infinite alternate; }
+.yg-wave-slide svg { display: block; flex: none; width: 100%; height: clamp(70px, 12vh, 120px); }
+.yg-wave-body { flex: 1; margin-top: -1px; background: var(--fill); min-height: 40px; }
+.yg-wave-body.is-last { background: linear-gradient(180deg, var(--fill), #1a6f94 50%, #14607f); }
+@keyframes yg-slide { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-50%, 0, 0); } }
+@keyframes yg-bobY2 { from { transform: translateY(-5px); } to { transform: translateY(6px); } }
+
+/* ムード */
+.yg-mood { inset: 0; opacity: 0; transition: opacity 1.3s ease; }
+.yg-mood-warm {
+  background: radial-gradient(circle at 80% 8%, rgba(255, 238, 170, 0.6), rgba(255, 238, 170, 0) 55%), linear-gradient(180deg, rgba(255, 214, 140, 0.12), rgba(255, 255, 255, 0.14));
+}
+.yg-mood-calm { background: linear-gradient(180deg, rgba(40, 90, 120, 0.2), rgba(20, 70, 100, 0.26)); }
+.yg-scene[data-mood="celebrate"] .yg-mood-warm { opacity: 1; }
+.yg-scene[data-mood="calm"] .yg-mood-calm { opacity: 1; }
+
+/* カモメ */
+.yg-gulls { inset: 0; }
+.yg-gull { position: absolute; left: 0; top: 0; will-change: transform; transform: translate(-20vw, 10vh); }
+.yg-gull svg { display: block; }
+
+.yg-scene.yg-paused * { animation-play-state: paused !important; }
+
+@keyframes yg-rot { to { transform: rotate(360deg); } }
+
+/* ================================================================
+ * ガチャ機  #stage  (createStage)
+ * ================================================================ */
+.yg-stage {
+  position: relative;
+  width: 100%; height: 100%; min-height: 320px;
+  font-family: var(--font);
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.yg-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.yg-machine {
+  position: absolute; left: 50%; top: 50%;
+  width: 600px; height: 905px;
+  transform: translate(-50%, -50%);
+  transform-origin: 50% 50%;
+}
+.yg-shake { position: absolute; inset: 0; }
+.yg-body, .yg-front { position: absolute; left: 0; top: 0; width: 600px; height: 905px; display: block; overflow: visible; }
+
+/* ドーム */
+.yg-dome {
+  position: absolute; left: 125px; top: 60px; width: 350px; height: 350px;
+  border-radius: 50%; overflow: hidden; clip-path: circle(50%);
+  isolation: isolate;
+}
+.yg-dome-in {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 38% 28%, rgba(255, 255, 255, 0.5) 0, rgba(215, 244, 255, 0.34) 40%, rgba(120, 200, 232, 0.4) 78%, rgba(60, 150, 195, 0.5) 100%);
+}
+.yg-caps { position: absolute; inset: 0; }
+.yg-cap { position: absolute; left: 0; top: 0; width: 62px; height: 53px; will-change: transform; transition: opacity 0.25s ease; }
+.yg-cap.is-gone { opacity: 0; }
+.yg-cap-in { width: 100%; height: 100%; animation: yg-bob 3.2s ease-in-out infinite alternate; animation-play-state: paused; }
+.yg-cap svg { display: block; width: 100%; height: 100%; overflow: visible; filter: none; }
+.yg-attract .yg-cap-in { animation-play-state: running; }
+@keyframes yg-bob {
+  from { transform: translateY(-1.5px) rotate(-2.2deg); }
+  to { transform: translateY(2px) rotate(2.2deg); }
+}
+.yg-glass { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+.yg-sheen {
+  position: absolute; top: -10%; bottom: -10%; left: 0; width: 30%; opacity: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0));
+  transform: translateX(-180%) skewX(-18deg);
+  pointer-events: none;
+}
+.yg-attract .yg-sheen { animation: yg-sheen 7s ease-in-out infinite 1.2s; }
+@keyframes yg-sheen {
+  0% { transform: translateX(-180%) skewX(-18deg); opacity: 1; }
+  34% { transform: translateX(480%) skewX(-18deg); opacity: 1; }
+  35%, 100% { transform: translateX(480%) skewX(-18deg); opacity: 0; }
+}
+.yg-flag { transform-box: fill-box; transform-origin: 0 50%; animation: yg-flag 2.2s ease-in-out infinite alternate; }
+@keyframes yg-flag {
+  from { transform: skewY(-5deg) scaleX(1); }
+  to { transform: skewY(4deg) scaleX(0.92); }
+}
+
+/* 舵輪 */
+.yg-wheelwrap {
+  position: absolute; border-radius: 50%;
+  touch-action: none; cursor: grab; outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.yg-stage[data-interactive="false"] .yg-wheelwrap { cursor: default; }
+.yg-stage.is-dragging .yg-wheelwrap { cursor: grabbing; }
+.yg-wheelwrap:focus-visible { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.95), 0 0 0 11px var(--sea-light); }
+.yg-sway { position: absolute; inset: 0; }
+.yg-attract[data-state="idle"]:not(.is-dragging) .yg-sway { animation: yg-sway 5.2s ease-in-out infinite; }
+@keyframes yg-sway {
+  0%, 100% { transform: rotate(-3.2deg); }
+  50% { transform: rotate(3.2deg); }
+}
+.yg-wheel { position: absolute; inset: 0; will-change: transform; filter: drop-shadow(0 6px 5px rgba(5, 20, 30, 0.35)); }
+.yg-wheel svg { display: block; width: 100%; height: 100%; }
+.yg-pawl { position: absolute; width: 30px; height: 40px; pointer-events: none; transform-origin: 50% 8px; }
+.yg-pawl svg { display: block; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.35)); }
+
+/* 回す方向のヒント */
+.yg-hint { position: absolute; width: 420px; height: 420px; pointer-events: none; opacity: 0; transition: opacity 0.3s ease; }
+.yg-hint svg { position: absolute; inset: 0; width: 100%; height: 100%; animation: yg-hintpulse 2.4s ease-in-out infinite; }
+.yg-stage[data-interactive="true"][data-state="idle"]:not(.is-dragging) .yg-hint { opacity: 1; }
+.yg-hint-orbit { position: absolute; inset: 0; animation: yg-orbit 2.8s cubic-bezier(0.5, 0, 0.3, 1) infinite; }
+.yg-hint-dot {
+  position: absolute; left: calc(50% + 192px - 18px); top: calc(50% - 18px); width: 36px; height: 36px; border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 38%, rgba(255, 255, 255, 0.6) 40% 100%);
+  box-shadow: 0 0 0 4px rgba(13, 63, 86, 0.4), 0 3px 12px rgba(0, 0, 0, 0.35);
+}
+.yg-hint-dot::after {
+  content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.9);
+  animation: yg-ripple 1.4s ease-out infinite;
+}
+@keyframes yg-orbit {
+  0% { transform: rotate(-34deg); opacity: 0; }
+  10% { opacity: 1; }
+  70% { transform: rotate(58deg); opacity: 1; }
+  84%, 100% { transform: rotate(58deg); opacity: 0; }
+}
+@keyframes yg-ripple { from { transform: scale(0.7); opacity: 0.9; } to { transform: scale(1.8); opacity: 0; } }
+@keyframes yg-hintpulse { 0%, 100% { opacity: 0.72; } 50% { opacity: 1; } }
+
+/* 取り出し口から落ちる宝箱 */
+.yg-drop { position: absolute; left: 262px; top: 780px; width: 76px; height: 64.6px; pointer-events: none; transform-origin: 50% 100%; will-change: transform; }
+.yg-drop svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* 「タップでまわす」ボタン */
+.yg-spin {
+  position: absolute; left: 100px; top: 850px; width: 400px; height: 56px;
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  border: 3px solid var(--brass-light); border-radius: 999px;
+  background: linear-gradient(180deg, #3aa0c8 0%, var(--sea) 52%, #0f4d68 100%);
+  color: #fff; font: 800 30px/1 var(--font); letter-spacing: 0.08em;
+  text-shadow: 0 2px 0 rgba(8, 40, 58, 0.55);
+  box-shadow: 0 6px 0 var(--sea-deep), 0 12px 20px rgba(13, 63, 86, 0.32), inset 0 2px 0 rgba(255, 255, 255, 0.4);
+  cursor: pointer; padding: 0; touch-action: manipulation;
+  -webkit-appearance: none; appearance: none;
+  transition: transform 0.08s ease, box-shadow 0.08s ease, opacity 0.25s ease, filter 0.25s ease;
+}
+.yg-spin:active { transform: translateY(5px); box-shadow: 0 1px 0 var(--sea-deep), 0 4px 10px rgba(13, 63, 86, 0.3), inset 0 2px 0 rgba(255, 255, 255, 0.3); }
+.yg-spin:focus-visible { outline: 4px solid #fff; outline-offset: 4px; }
+.yg-spin-ic { width: 30px; height: 30px; flex: none; }
+.yg-stage[data-interactive="false"] .yg-spin { opacity: 0.55; filter: saturate(0.5); cursor: default; }
+.yg-stage[data-interactive="true"] .yg-spin { animation: yg-btnpulse 2.6s ease-in-out infinite; }
+@keyframes yg-btnpulse {
+  0%, 100% { box-shadow: 0 6px 0 var(--sea-deep), 0 12px 20px rgba(13, 63, 86, 0.32), inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 0 0 0 rgba(255, 244, 190, 0.8); }
+  50% { box-shadow: 0 6px 0 var(--sea-deep), 0 12px 20px rgba(13, 63, 86, 0.32), inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 0 0 12px rgba(255, 244, 190, 0); }
+}
+
+/* 空転中の揺れ */
+.yg-stage.is-spinning .yg-shake { animation: yg-rattle 0.16s linear infinite; }
+@keyframes yg-rattle {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(-1.8px, 1px) rotate(-0.22deg); }
+  50% { transform: translate(1.4px, -1.2px) rotate(0.18deg); }
+  75% { transform: translate(-1px, -0.6px) rotate(-0.12deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+/* 宝箱 SVG 内のアニメ */
+.yg-holo { animation: yg-holo 3s linear infinite; }
+@keyframes yg-holo { from { transform: translate(0, 0); } to { transform: translate(60.62px, 35px); } }
+.yg-twk { transform-box: fill-box; transform-origin: center; animation: yg-twk 2.2s ease-in-out infinite; }
+.yg-twk2 { animation-delay: -1.1s; }
+@keyframes yg-twk { 0%, 100% { transform: scale(0.2); opacity: 0; } 50% { transform: scale(1.1); opacity: 1; } }
+.yg-int-glow { opacity: 0; transition: opacity 0.4s; }
+.is-open .yg-int-glow { opacity: 0.85; }
+
+/* ================================================================
+ * 開封オーバーレイ（body 直下 / position: fixed）
+ * ================================================================ */
+.yg-overlay {
+  position: fixed; inset: 0; z-index: var(--z-reveal, 100);
+  visibility: hidden; pointer-events: none; overflow: hidden;
+  font-family: var(--font);
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  --tc: #e07a5f; --tc-glow: #ffe3d8; --tc-ink: #6e2412; --tc-dark: #b1452b; --ray: rgba(255, 220, 190, 0.55);
+  --rib: linear-gradient(180deg, #ffe9e0, #f5a58d 62%, #e8806a);
+}
+.yg-overlay[data-tier="sponsor"] { --tc: #e9b53c; --tc-glow: #fff2b8; --tc-ink: #5a3500; --tc-dark: #8a5a00; --ray: rgba(255, 222, 120, 0.62); --rib: linear-gradient(180deg, #fff6c8, #f6cc54 58%, #dca62c); }
+.yg-overlay[data-tier="rare"] { --tc: #7fc8e8; --tc-glow: #e6f7ff; --tc-ink: #07405e; --tc-dark: #1b6e96; --ray: rgba(215, 242, 255, 0.7); --rib: linear-gradient(180deg, #f4fcff, #b2e0f4 58%, #82c9e8); }
+.yg-overlay.is-on { visibility: visible; pointer-events: auto; }
+.yg-overlay.is-leaving { opacity: 0; transition: opacity 0.35s ease; }
+
+.yg-ov-backdrop {
+  position: absolute; inset: 0; opacity: 0; transition: opacity 0.4s ease;
+  background: radial-gradient(ellipse at 50% 42%, rgba(46, 140, 180, 0.86) 0%, rgba(14, 76, 106, 0.93) 62%, rgba(7, 44, 66, 0.97) 100%);
+}
+.yg-overlay.is-on .yg-ov-backdrop { opacity: 1; }
+.yg-overlay.is-reduced .yg-ov-backdrop { transition-duration: 0.2s; }
+
+.yg-rays {
+  position: absolute; left: 50%; top: 40%; width: 1500px; height: 1500px; margin: -750px 0 0 -750px;
+  opacity: 0; pointer-events: none; will-change: transform, opacity;
+}
+.yg-rays > i {
+  position: absolute; inset: 0; display: block;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0) 0deg, var(--ray) 3.6deg, rgba(255, 255, 255, 0) 7.2deg, rgba(255, 255, 255, 0) 20deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0, rgba(0, 0, 0, 0.85) 24%, transparent 66%);
+  mask-image: radial-gradient(circle, #000 0, rgba(0, 0, 0, 0.85) 24%, transparent 66%);
+  will-change: transform;
+}
+.yg-rays-b > i { opacity: 0.55; background-size: auto; }
+.yg-overlay.is-open .yg-rays-a > i { animation: yg-rot 46s linear infinite; }
+.yg-overlay.is-open .yg-rays-b > i { animation: yg-rot 70s linear infinite reverse; }
+.yg-overlay.is-reduced .yg-rays { opacity: 0.55; }
+.yg-overlay.is-reduced .yg-rays-b { display: none; }
+.yg-overlay.is-reduced.is-open .yg-rays > i { animation: none; }
+
+.yg-flash {
+  position: absolute; inset: 0; opacity: 0; pointer-events: none; z-index: 8;
+  background: radial-gradient(circle at 50% 45%, #fff 0, var(--tc-glow) 26%, rgba(255, 255, 255, 0) 70%);
+}
+
+.yg-ov-stack {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 10px 0; box-sizing: border-box;
+  --slot-w: clamp(150px, min(24vw, 27vh), 260px);
+}
+.yg-slot { flex: none; width: var(--slot-w); height: calc(var(--slot-w) * 0.85); margin-bottom: calc(var(--slot-w) * -0.1); }
+
+/* 宝箱 */
+.yg-chest {
+  position: absolute; left: 0; top: 0; width: 420px; height: 357px; z-index: 6;
+  transform-origin: 50% 50%; will-change: transform; pointer-events: none;
+}
+.yg-chest-glow {
+  position: absolute; left: -40%; top: -40%; width: 180%; height: 180%; border-radius: 50%; opacity: 0;
+  background: radial-gradient(circle, var(--tc-glow) 0, var(--tc) 18%, rgba(255, 255, 255, 0) 56%);
+  will-change: transform, opacity;
+}
+.yg-overlay.is-reduced .yg-chest-glow { opacity: 0.4; }
+.yg-layers { position: absolute; inset: 0; }
+.yg-ch { position: absolute; inset: 0; perspective: 900px; }
+.yg-ch[data-v="silver"], .yg-ch[data-v="gold"] { opacity: 0; }
+.yg-ch-base, .yg-ch-lid { position: absolute; inset: 0; }
+.yg-ch-lid { transform-origin: 50% 54.1%; transform-style: preserve-3d; -webkit-transform-style: preserve-3d; will-change: transform; }
+.yg-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.yg-fc-in { transform: rotateX(180deg); }
+.yg-ch svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.yg-seam {
+  position: absolute; left: 6%; right: 6%; top: calc(54.1% - 3px); height: 7px; border-radius: 4px; opacity: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), var(--tc-glow) 12%, #fff 50%, var(--tc-glow) 88%, rgba(255, 255, 255, 0));
+  box-shadow: 0 0 16px 7px var(--tc), 0 0 38px 14px var(--tc-glow);
+}
+.yg-mouth {
+  position: absolute; left: 8%; right: 8%; bottom: 44%; height: 100%; opacity: 0; transform-origin: 50% 100%;
+  background: linear-gradient(to top, #fff, var(--tc-glow) 22%, rgba(255, 255, 255, 0) 90%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 30%, #000 70%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 30%, #000 70%, transparent 100%);
+  pointer-events: none;
+}
+.is-open .yg-mouth { opacity: 0.3; }
+.yg-flare {
+  position: absolute; left: 14%; right: 14%; top: 22%; height: 64%; opacity: 0; border-radius: 50%;
+  background: radial-gradient(circle, #fff 0, var(--tc-glow) 30%, rgba(255, 255, 255, 0) 68%);
+}
+
+/* 結果カード */
+.yg-card {
+  position: relative; flex: none; box-sizing: border-box;
+  width: min(90vw, 860px); max-height: calc(100% - 10px);
+  opacity: 0;
+  padding: clamp(8px, 1.4vmin, 14px);
+  border: 12px solid transparent; border-radius: 32px;
+  background:
+    radial-gradient(ellipse at 18% 12%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 55%) padding-box,
+    radial-gradient(ellipse at 88% 92%, rgba(196, 148, 74, 0.2), rgba(196, 148, 74, 0) 60%) padding-box,
+    repeating-linear-gradient(97deg, rgba(150, 110, 50, 0.05) 0 2px, rgba(150, 110, 50, 0) 2px 7px) padding-box,
+    linear-gradient(180deg, var(--paper), #f0e5c8) padding-box,
+    linear-gradient(135deg, #f8e2a6 0%, #d5ad59 28%, #8f6d25 52%, #e9c978 76%, #b98d3a 100%) border-box;
+  box-shadow: 0 20px 50px rgba(3, 26, 40, 0.55), 0 0 0 2px rgba(70, 48, 8, 0.6), 0 0 44px 4px var(--tc);
+}
+.yg-overlay[data-tier="rare"] .yg-card {
+  background:
+    radial-gradient(ellipse at 18% 12%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 55%) padding-box,
+    radial-gradient(ellipse at 88% 92%, rgba(150, 190, 230, 0.22), rgba(150, 190, 230, 0) 60%) padding-box,
+    repeating-linear-gradient(97deg, rgba(110, 140, 170, 0.05) 0 2px, rgba(110, 140, 170, 0) 2px 7px) padding-box,
+    linear-gradient(180deg, var(--paper), #eaeee6) padding-box,
+    linear-gradient(135deg, #ffd6f0, #bfe9ff 25%, #fff6c0 45%, #c8ffe9 65%, #cdb8ff 85%, #ffd6f0) border-box;
+  background-size: auto, auto, auto, auto, 220% 220%;
+}
+.yg-overlay[data-tier="rare"].is-shown .yg-card { animation: yg-holoborder 6s linear infinite; }
+@keyframes yg-holoborder { from { background-position: 0 0, 0 0, 0 0, 0 0, 0% 0%; } to { background-position: 0 0, 0 0, 0 0, 0 0, 220% 220%; } }
+.yg-card-inner {
+  border: 2px solid rgba(156, 122, 46, 0.55); border-radius: 20px; text-align: center;
+  padding: clamp(10px, 2.2vmin, 22px) clamp(12px, 2.6vmin, 28px) clamp(12px, 2.4vmin, 24px);
+  box-shadow: inset 0 0 34px rgba(160, 120, 60, 0.2);
+}
+.yg-rivet {
+  position: absolute; width: 15px; height: 15px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fffbe8, #e2bb67 50%, #8f6d25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); border: 1px solid rgba(80, 55, 10, 0.6);
+}
+.yg-r1 { left: -13px; top: -13px; } .yg-r2 { right: -13px; top: -13px; }
+.yg-r3 { left: -13px; bottom: -13px; } .yg-r4 { right: -13px; bottom: -13px; }
+
+.yg-cat {
+  display: flex; align-items: center; justify-content: center; gap: 0.45em;
+  max-width: 100%; margin: 0 auto; box-sizing: border-box;
+  padding: 0.12em 1.5em;
+  font-size: clamp(30px, 6.6vmin, 62px); font-weight: 900; letter-spacing: 0.05em; line-height: 1.25;
+  color: var(--tc-ink);
+  background: var(--rib);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 0.4em) 50%, 100% 100%, 0 100%, 0.4em 50%);
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.18));
+}
+.yg-cat-tx { min-width: 0; white-space: nowrap; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55); }
+.yg-cat-ic { flex: none; display: inline-flex; width: 1em; height: 0.95em; color: var(--tc-ink); }
+.yg-cat-ic svg { width: 100%; height: 100%; display: block; }
+.yg-cat-ic svg [fill="currentColor"] { fill: var(--tc-ink); }
+.yg-cat-ic svg [stroke="currentColor"] { stroke: var(--tc-ink); }
+.yg-overlay[data-tier="sponsor"] .yg-cat-ic svg path { fill: #fff6c8; }
+.yg-overlay[data-tier="rare"] .yg-cat-ic svg path { fill: #fff; }
+.yg-overlay[data-tier="sticker"] .yg-cat-ic svg path { stroke: #fff6f0; }
+.yg-overlay[data-tier="sticker"] .yg-cat-ic svg [stroke-linecap] { stroke: var(--tc-ink); }
+
+.yg-prize {
+  box-sizing: border-box; width: 100%; margin: 0.2em 0 0.1em; padding: 0 0.1em;
+  font-size: clamp(38px, 8.8vmin, 84px); font-weight: 900; line-height: 1.2; letter-spacing: 0.02em;
+  color: var(--ink); text-shadow: 0 2px 0 rgba(255, 255, 255, 0.8);
+  word-break: keep-all; overflow-wrap: anywhere;
+}
+.yg-label {
+  display: inline-block; margin: 0.1em 0 0.35em; padding: 0.2em 1.1em;
+  font-size: clamp(16px, 2.7vmin, 24px); font-weight: 800; color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.6); border: 1.5px solid rgba(156, 122, 46, 0.55); border-radius: 999px;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.04em;
+}
+.yg-notice {
+  margin: 0.2em auto 0; padding: 0.55em 1em; box-sizing: border-box; max-width: 100%;
+  font-size: clamp(17px, 3vmin, 28px); font-weight: 800; color: var(--ink); line-height: 1.35;
+  background: repeating-linear-gradient(135deg, rgba(213, 173, 89, 0.2) 0 10px, rgba(213, 173, 89, 0.1) 10px 20px);
+  border: 2px dashed var(--brass-dark); border-radius: 14px;
+}
+.yg-actions { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 12px; }
+.yg-actions:empty { display: none; }
+
+/* 余韻のきらめき */
+.yg-tw {
+  position: absolute; width: 26px; height: 26px; opacity: 0; pointer-events: none;
+  background: #fff7c8;
+  clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%);
+}
+.yg-tw1 { left: -26px; top: 12%; } .yg-tw2 { right: -28px; top: 26%; width: 34px; height: 34px; }
+.yg-tw3 { left: 8%; top: -24px; width: 22px; height: 22px; } .yg-tw4 { right: 14%; top: -30px; }
+.yg-tw5 { left: -22px; bottom: 16%; width: 20px; height: 20px; } .yg-tw6 { right: -24px; bottom: 10%; width: 28px; height: 28px; }
+.yg-overlay.is-shown:not(.is-reduced) .yg-tw { animation: yg-tw 2.6s ease-in-out infinite; }
+.yg-overlay.is-shown .yg-tw2 { animation-delay: -0.6s; } .yg-overlay.is-shown .yg-tw3 { animation-delay: -1.2s; }
+.yg-overlay.is-shown .yg-tw4 { animation-delay: -1.8s; } .yg-overlay.is-shown .yg-tw5 { animation-delay: -0.3s; } .yg-overlay.is-shown .yg-tw6 { animation-delay: -2.1s; }
+@keyframes yg-tw { 0%, 100% { opacity: 0; transform: scale(0.2) rotate(0deg); } 50% { opacity: 1; transform: scale(1) rotate(25deg); } }
+
+.yg-confetti { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 7; pointer-events: none; }
+.yg-confetti-back { z-index: 4; }
+
+/* ================================================================
+ * 動きを減らす（OS設定／opts.reducedMotion）
+ * ================================================================ */
+.yg-reduced .yg-cap-in, .yg-reduced .yg-sheen, .yg-reduced .yg-flag, .yg-reduced .yg-sway,
+.yg-reduced .yg-hint svg, .yg-reduced .yg-hint-dot::after, .yg-reduced .yg-spin, .yg-reduced .yg-twk, .yg-reduced .yg-holo { animation: none !important; }
+.yg-reduced .yg-hint-orbit { animation: none; transform: rotate(40deg); }
+.yg-reduced.yg-attract .yg-sway { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .yg-scene *, .yg-stage .yg-cap-in, .yg-stage .yg-sheen, .yg-stage .yg-flag, .yg-stage .yg-sway,
+  .yg-stage .yg-hint svg, .yg-stage .yg-hint-dot::after, .yg-stage .yg-spin, .yg-stage .yg-twk, .yg-stage .yg-holo { animation: none !important; }
+  .yg-scene .yg-cloud { left: calc(var(--sc, 1) * 22%); }
+  .yg-hint-orbit { animation: none; transform: rotate(40deg); }
+  .yg-overlay .yg-tw, .yg-overlay .yg-rays > i { animation: none !important; }
+}
