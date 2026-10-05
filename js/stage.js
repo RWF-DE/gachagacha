@@ -15,8 +15,9 @@
 //   r = { tier:'sponsor'|'rare'|'sticker', categoryName, prizeName, label }
 // ?fast=1 / prefers-reduced-motion では 1 秒未満の単純なフェードにする。
 import {
-  DEFS, wheelMark, metaHtml, splitChars, esc, fitStage, installGrain, halftone, splitPhrases, fontsReady,
+  DEFS, wheelMark, metaHtml, splitChars, esc, fitStage, installGrain, drawHalftone, splitPhrases, fontsReady,
 } from './poster.js';
+import { createPerf } from './perf.js';
 
 const TIERS = {
   sponsor: { mid: 'SPONSOR AWARD', capC: 'YoSoro! — Treasure Draw', base: { l: 178, p: 150 }, prize: { l: 112, p: 100 }, sound: 'fanfare-sponsor' },
@@ -73,6 +74,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
 
   const $ = (sel) => stageEl.querySelector(sel);
   const snd = (name) => { try { sound?.play(name); } catch { /* 音の失敗で進行を止めない */ } };
+  const perf = createPerf();   // ?perf=1 のときだけ（実機のカクつき確認用）
   const catEl = $('#cat'); const prizeEl = $('#prize'); const ruleEl = $('#result .rule'); const plabelEl = $('#result .plabel');
   const numEl = $('#num'); const htEl = $('#ht'); const staffEl = $('#staffslot'); const bigEl = $('#bigcat'); const cardEl = $('#card');
 
@@ -84,7 +86,13 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   let turnCb = null;
   let wheel = null;        // 現在の舵輪画面の状態
   let spin = null;
+  let warmTimer = 0;
 
+  // 次の描画が済むまで待つ（rAF の中ではまだ描画前なので、rAF の後にタイマーを1つ挟む。rAF が止まっている環境でも進むよう保険付き）
+  const nextFrame = () => new Promise((res) => {
+    let d = false; const f = () => { if (!d) { d = true; res(); } };
+    requestAnimationFrame(() => setTimeout(f, 0)); setTimeout(f, 100);
+  });
   const later = (ms, fn) => { timers.push(setTimeout(fn, ms)); };
   const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
 
@@ -189,7 +197,25 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     };
     document.addEventListener('keydown', onKey);
     applyInteractive();
+    scheduleWarm();
     return el;
+  }
+
+  // ---------- 先に作っておく（演出の頭で引っかからないように） ----------
+  // 舵輪の画面が出ている間（来場者が回すまでの時間）に、結果面の DOM とレイアウトを先に作っておく（見えない：visibility:hidden）。
+  // 演出の頭では文字を差し替えるだけで済む。結果の中身（賞の名称など）は保存が終わるまで分からないので仮の文字。
+  function scheduleWarm() {
+    if (fast || stageEl.classList.contains('warm')) return;
+    clearTimeout(warmTimer);
+    warmTimer = setTimeout(() => {
+      if (cur || stageEl.classList.contains('warm') || stageEl.dataset.screen !== 'idle') return;
+      catEl.innerHTML = splitChars('賞の名称');
+      prizeEl.textContent = '景品の名称';
+      bigEl.innerHTML = `<span class="ln">${splitChars('賞の名称')}</span>`;
+      stageEl.classList.add('warm');
+      void stageEl.offsetWidth;   // レイアウトまで済ませる
+      paintHalftone(geo.portrait ? geo.W - 80 : 236, geo.portrait ? 56 : 168);   // 協賛特別賞の飾りも先に描いておく（枠の大きさが同じなら使い回される）
+    }, 700);
   }
 
   function fire() {
@@ -211,6 +237,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   function startSpin() {
     stopSpin();
     if (!wheel) return;
+    perf?.start('draw');
     const w = wheel;
     const dir = (w.v ?? 1) < 0 ? -1 : 1;
     w.net = dir * THRESHOLD_DEG;
@@ -240,6 +267,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   function abort() {
     clearTimers();
     stopSpin();
+    perf?.cancel();
     if (wheel) { wheel.fired = false; wheel.net = 0; wheel.render?.(); }
   }
 
@@ -260,7 +288,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     prizeEl.textContent = r.prizeName;
     $('#lotno').textContent = r.label;
     numEl.querySelector('b').textContent = r.label.includes('-') ? r.label.split('-').pop() : r.label;
-    htEl.innerHTML = r.tier === 'sponsor' ? halftone(236, 168) : '';
+    htEl.replaceChildren();
     if (r.tier === 'sponsor') buildCard(r);
   }
 
@@ -373,6 +401,22 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
       htEl.style.top = `${74 + dy}px`;
       htEl.style.height = '';
     }
+    if (cur.tier === 'sponsor') paintHalftone(P ? W - 80 : 236, P ? 56 : Math.max(60, Math.min(168, ruleTop - 12 - 78)));
+  }
+
+  // ハーフトーンは枠の大きさごとに1回だけ canvas に描いて使い回す（描き直さない・演出中に再ラスタライズしない）
+  const htCache = new Map();
+  function paintHalftone(bw, bh) {
+    const scale = Math.min(3, (window.devicePixelRatio || 1) * (geo.s || 1));
+    const key = `${Math.round(bw)}x${Math.round(bh)}@${scale.toFixed(2)}`;
+    let c = htCache.get(key);
+    if (!c) {
+      c = document.createElement('canvas');
+      drawHalftone(c, bw, bh, scale);
+      if (htCache.size > 6) htCache.clear();
+      htCache.set(key, c);
+    }
+    if (htEl.firstChild !== c) htEl.replaceChildren(c);
   }
 
   // ---------- 演出 ----------
@@ -382,11 +426,14 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     const TL = TIMELINE[r.tier];
     stageEl.classList.remove('playing', 'leaving');
     cur = r;
-    stageEl.dataset.screen = 'seq';
+    // 保存完了の瞬間に重い仕事（DOM の組み立て→スタイル→レイアウト→測定）を1フレームに固めると、空転中の舵輪が止まって見える。
+    // 1) 結果面を作る（まだ見せない）→ 1フレーム挟んでスタイル/レイアウトを済ませる → 2) 測定して見せる＋演出開始、の2段にする。
+    if (fast) stageEl.dataset.screen = 'seq'; else stageEl.classList.add('warm');
     buildResult(r);
-    await fontsReady(1000);
+    await Promise.all([fontsReady(1000), fast ? null : nextFrame()]);
     geo = fitStage(stageEl);
     layoutResult();
+    stageEl.dataset.screen = 'seq';
     void stageEl.offsetWidth;
     stageEl.classList.add('playing');
 
@@ -405,7 +452,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
       }
       later(TL.r0 + TL.cat, () => snd(TIERS[r.tier].sound));
       later(TL.r0 + TL.stamp + 150, () => snd('slam'));
-      const onEnd = (e) => { if (e.target === staffEl && e.animationName === 'clipR') finish(); };
+      const onEnd = (e) => { if (e.target === staffEl && e.animationName === 'tick') finish(); };
       staffEl.addEventListener('animationend', onEnd);
       later(TL.r0 + TL.staff + STAFF_DUR + 500, finish);
       done.then(() => staffEl.removeEventListener('animationend', onEnd));
@@ -413,6 +460,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     await done;
     clearTimers();
     stopSpin();
+    perf?.stop(r.tier);
     stageEl.dataset.screen = 'result';
     stageEl.classList.remove('playing');
   }

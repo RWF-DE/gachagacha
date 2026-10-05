@@ -1,6 +1,7 @@
 /* YoSoro! お宝ガチャ — プレイヤー画面（ポスター）
    基準 横1180×820 / 縦820×1180（[data-o=p]）。--W --H --ex は js/poster.js の fitStage が設定。
-   動かすのは transform / opacity / clip-path / visibility だけ。 */
+   動かすのは transform / opacity / visibility だけ（clip-path は動かさない：Safari ではコンポジタで動かず毎フレーム再描画になる）。
+   ワイプは「背景色のカバーを scale で外す」で表す（DESIGN.md §10 性能）。 */
 
 #stage {
   position: fixed;
@@ -35,6 +36,9 @@
 #screen-host { position: absolute; inset: 0; }
 .scr { position: absolute; inset: 0; color: var(--ink); }
 .layer { position: absolute; inset: 0; display: none; }
+/* 結果面を先に作っておく状態（js/stage.js scheduleWarm）：見えないがレイアウトは済んでいる */
+#stage.warm #result, #stage.warm #shut, #stage.warm #card { display: block; }
+#stage.warm:not([data-screen=result]):not([data-screen=seq]) #result { visibility: hidden; }
 #stage[data-screen=result] #result,
 #stage[data-screen=seq] #result, #stage[data-screen=seq] #shut, #stage[data-screen=seq] #card { display: block; }
 
@@ -57,6 +61,8 @@
   content: ""; position: absolute; left: 12px; right: 12px; bottom: 4px; height: 4px; background: var(--red);
   transform-origin: 0 50%; transform: scaleX(var(--p)); pointer-events: none;
 }
+/* 演出の準備中（結果の系統クラスだけ先に付く間）も、ロゴは待機の色のまま */
+#stage[data-screen=idle] .logo { color: var(--ink); }
 #stage.playing .logo { animation: logoc 1ms linear var(--cv, 0ms) both; }
 @keyframes logoc { from { color: var(--ink); } to { color: var(--fg); } }
 
@@ -107,7 +113,7 @@
 .scr-choose .rows { position: absolute; left: 40px; bottom: 24px; width: 560px; }
 .row {
   position: relative; display: grid; grid-template-columns: 70px 1fr 58px; align-items: center; width: 100%; height: 124px; text-align: left;
-  padding: 0 22px 0 20px; border: 4px solid var(--ink); margin-bottom: 14px; overflow: hidden; touch-action: manipulation;
+  padding: 0 22px 0 20px; border: 4px solid var(--ink); overflow: hidden; touch-action: manipulation;
 }
 .row .n { font-family: var(--f-mono); font-weight: 500; font-size: 18px; letter-spacing: .06em; align-self: start; margin-top: 16px; }
 .row .t { display: block; font-family: var(--f-disp); font-weight: 400; font-size: 46px; line-height: 1.05; letter-spacing: -.01em; white-space: nowrap; }
@@ -131,15 +137,29 @@
 .scr-choose.intro .yo .c:nth-child(5) .ci { animation-delay: .33s; }
 .scr-choose.intro .yo .c:nth-child(6) .ci { animation-delay: .40s; }
 .scr-choose.intro .yo .c:nth-child(7) .ci { animation-delay: .47s; }
-.scr-choose.intro .takara { animation: clipR .8s var(--ease-hard) .7s both; }
-.scr-choose.intro .tag { animation: clipR .5s var(--ease-hard) 1s both; }
-.scr-choose.intro .row.a { animation: clipR .6s var(--ease-hard) 1.1s both; }
-.scr-choose.intro .row.b { animation: clipR .6s var(--ease-hard) 1.22s both; }
+.scr-choose.intro .takara::after { animation: coverR .8s var(--ease-hard) .7s both; }
+.scr-choose.intro .tag::after { animation: coverR .5s var(--ease-hard) 1s both; }
+.scr-choose.intro .rw.a { animation: rwOut .6s var(--ease-hard) 1.1s both; }
+.scr-choose.intro .rw.a .row { animation: rwIn .6s var(--ease-hard) 1.1s both; }
+.scr-choose.intro .rw.b { animation: rwOut .6s var(--ease-hard) 1.22s both; }
+.scr-choose.intro .rw.b .row { animation: rwIn .6s var(--ease-hard) 1.22s both; }
 .scr-choose.intro .bigw { animation: wheelIn 1.5s var(--ease-slam) .3s both; }
-.scr-choose.quick .takara, .scr-choose.quick .tag, .scr-choose.quick .row { animation: clipR .4s var(--ease-hard) both; }
+.scr-choose.quick .takara::after, .scr-choose.quick .tag::after { animation: coverR .4s var(--ease-hard) both; }
+.scr-choose.quick .rw { animation: rwOut .4s var(--ease-hard) both; }
+.scr-choose.quick .rw .row { animation: rwIn .4s var(--ease-hard) both; }
+/* 左→右のワイプ用カバー（紙色。右端を支点に scaleX(1→0)）。intro / quick の間だけ存在する */
+.scr-choose.intro .takara::after, .scr-choose.intro .tag::after, .scr-choose.quick .takara::after, .scr-choose.quick .tag::after {
+  content: ""; position: absolute; inset: 0; background: var(--bg); transform-origin: 100% 50%; pointer-events: none;
+}
+/* 行は「枠（.rw）を右へ動かしつつ中身（.row）を左へ同量だけ動かす」で左→右にワイプする（中身は止まって見える）。
+   下に舵輪があっても隠さない。枠の overflow:hidden は登場の間だけ（.anim。フォーカスの輪郭を切らないため） */
+.rw { position: relative; margin-bottom: 14px; }
+.scr-choose.anim .rw { overflow: hidden; }
 .scr-choose.quick .bigw { animation: fadeIn .4s linear both; }
 @keyframes charUp { from { transform: translateY(105%); } to { transform: none; } }
-@keyframes clipR { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes rwOut { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes rwIn { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes coverR { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes wheelIn { from { transform: rotate(-120deg) scale(.86); opacity: 0; } 30% { opacity: 1; } to { transform: none; } }
 
@@ -259,7 +279,7 @@
 #result .dno b { display: block; font-size: 104px; line-height: .82; letter-spacing: -.06em; }
 /* 抽選番号の大数字は順位と誤読されうるため出さない（番号はスタンプに表示） */
 #result .ht { position: absolute; right: 40px; top: 78px; width: 236px; height: 168px; z-index: 3; display: none; }
-#result .ht svg { width: 100%; height: 100%; display: block; }
+#result .ht canvas { width: 100%; height: 100%; display: block; }
 #stage.t-sponsor #result .ht { display: block; }
 #result .plabel { position: absolute; left: 40px; top: 300px; font-family: var(--f-mono); font-weight: 500; font-size: 15px; letter-spacing: .1em; z-index: 3; display: flex; gap: 10px; align-items: center; }
 #result .plabel b { background: var(--fg); color: var(--bg); padding: 3px 8px; font-weight: 500; }
@@ -336,13 +356,15 @@
 @keyframes slamUp { from { transform: translateY(104%); } to { transform: none; } }
 @keyframes slamOut { from { transform: none; } to { transform: translateY(-108%); } }
 @keyframes scaleX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@keyframes clipUp { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes coverU { from { transform: scaleY(1); } to { transform: scaleY(0); } }
+@keyframes coverIn { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes tick { from { opacity: .99; } to { opacity: 1; } }
+@keyframes on { from { opacity: .001; } to { opacity: 1; } }
 @keyframes wheelRot { from { transform: rotate(-135deg) scale(1.14); opacity: 0; } 25% { opacity: 1; } to { transform: none; } }
 @keyframes stampIn { 0% { transform: rotate(-24deg) scale(2.5); opacity: 0; } 38% { opacity: 1; } 100% { transform: rotate(-7deg) scale(1); opacity: 1; } }
 @keyframes shake { 0% { transform: translate(0, 0); } 25% { transform: translate(-7px, 5px); } 50% { transform: translate(5px, -3px); } 75% { transform: translate(-2px, 1px); } 100% { transform: none; } }
 @keyframes popIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ring { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(1.9); opacity: 0; } }
-@keyframes wheelOut { from { clip-path: inset(0 0 0 0); } to { clip-path: inset(0 0 0 100%); } }
 
 /* 系統ごとのタイムライン（ms）。cv=結果レイヤーが表に出る時刻 / r0=結果の登場開始 / o-*=r0 からの遅れ */
 #stage.t-sponsor { --cv: 1540ms; --r0: 3540ms; --cout: 2970ms;
@@ -358,7 +380,10 @@
   --o-plabel: 300ms; --d-plabel: 400ms; --o-prize: 350ms; --d-prize: 560ms; --o-panel: 600ms; --d-panel: 480ms;
   --at-wm: 1250ms; --d-wm: 1000ms; --o-stamp: 900ms; --o-staff: 1300ms; }
 
-#stage.playing #result { visibility: hidden; animation: vis 1ms linear var(--cv) both; }
+/* 結果面は演出の序盤（シャッターの陰）から opacity .001 で「描画だけ」しておく。cv で opacity 1。
+   初めて見える瞬間に巨大な文字を描くとそこで引っかかるため（iPad Safari）。fast では使わない。 */
+#stage.playing:not(.fast) #result { visibility: hidden; opacity: .001; pointer-events: none;
+  animation: vis 1ms linear 200ms both, on 1ms linear var(--cv) both; }
 #stage.playing .scr-wheel { animation: hide 1ms linear var(--cv) forwards; }
 
 /* シャッター: スポンサー=群青が左→右に立ち上がり、赤が右→左に降りる */
@@ -387,8 +412,11 @@
 #stage.t-sticker #shut .g { display: none; }
 
 /* スポンサー: タイトルカード（出た文字が全部消えてから結果の登場が始まる） */
-#stage.playing.t-sponsor #card { animation: vis 1ms linear var(--cv) both, hide 1ms linear var(--r0) forwards; visibility: hidden; }
-#stage:not(.t-sponsor) #card { display: none !important; }
+#stage.playing.t-sponsor #card { visibility: hidden; opacity: .001;
+  animation: vis 1ms linear 200ms both, on 1ms linear var(--cv) both, hide 1ms linear var(--r0) forwards; }
+/* 大きな文字のレイヤーは演出中だけ will-change（終わったら外してメモリを返す） */
+#stage.playing #card .big .chi, #stage.playing #result .cat .chi { will-change: transform; }
+#stage:not(.t-sponsor):not(.warm) #card { display: none !important; }
 #stage.playing.t-sponsor #card .big .chi {
   animation: slamUp 560ms var(--ease-slam) both, slamOut 360ms var(--ease-hard) both;
   animation-delay: calc(var(--cv) + 120ms + var(--k) * var(--kd, 80ms)), calc(var(--cout) + var(--k) * var(--kd, 80ms) * .5);
@@ -397,22 +425,28 @@
 #stage.playing.t-sponsor #card .cap { animation: popIn 1ms linear calc(var(--cv) + 400ms + var(--k) * 120ms) both, hide 1ms linear var(--cout) forwards; }
 
 /* 結果の登場 */
-#stage.playing #result .meta { animation: clipR var(--d-meta) var(--ease-hard) calc(var(--r0) + var(--o-meta)) both; }
+/* 左→右・下→上のワイプ：要素そのものは動かさず、背景色のカバー（::after）を scale で外す（transform のみ） */
+#stage.playing #result :is(.meta, .ht, .plabel, .prize, .panel)::after {
+  content: ""; position: absolute; inset: -6px -12px -6px 0; z-index: 9; background: var(--bg); pointer-events: none; transform-origin: 100% 50%;
+}   /* 文字の字送りではみ出す分（右へ数px）まで覆う */
+#stage.playing #result .meta::after { top: 0; bottom: -3px; animation: coverR var(--d-meta) var(--ease-hard) calc(var(--r0) + var(--o-meta)) both; }
 #stage.playing #result .cat .chi { animation: slamUp 620ms var(--ease-slam) calc(var(--r0) + var(--o-cat) + var(--k) * var(--kd, 70ms)) both; }
 #stage.playing.t-sticker #result .cat .chi { animation-duration: 520ms; }
 #stage.playing #result .rule { animation: scaleX var(--d-rule) var(--ease-hard) calc(var(--r0) + var(--o-rule)) both; }
-#stage.playing #result .dno, #stage.playing #result .ht { animation: clipR var(--d-num) var(--ease-hard) calc(var(--r0) + var(--o-num)) both; }
-#stage.playing #result .plabel { animation: clipR var(--d-plabel) var(--ease-hard) calc(var(--r0) + var(--o-plabel)) both; }
-#stage.playing #result .prize { animation: clipR var(--d-prize) var(--ease-hard) calc(var(--r0) + var(--o-prize)) both; }
-#stage.playing #result .panel { animation: clipUp var(--d-panel) var(--ease-hard) calc(var(--r0) + var(--o-panel)) both; }
+#stage.playing #result .ht::after { animation: coverR var(--d-num) var(--ease-hard) calc(var(--r0) + var(--o-num)) both; }
+#stage.playing #result .plabel::after { animation: coverR var(--d-plabel) var(--ease-hard) calc(var(--r0) + var(--o-plabel)) both; }
+#stage.playing #result .prize::after { animation: coverR var(--d-prize) var(--ease-hard) calc(var(--r0) + var(--o-prize)) both; }
+#stage.playing #result .panel::after { inset: 0; transform-origin: 50% 0; animation: coverU var(--d-panel) var(--ease-hard) calc(var(--r0) + var(--o-panel)) both; }
 #stage.playing #result .wmw .wm { animation: wheelRot var(--d-wm) var(--ease-slam) var(--at-wm) both; }
 #stage.playing #result .stamp { animation: stampIn 300ms cubic-bezier(.2, .9, .1, 1) calc(var(--r0) + var(--o-stamp)) both; }
 #stage.playing #result .stamp::after { content: ""; position: absolute; inset: 0; border: 3px solid var(--fg); border-radius: 50%; animation: ring 500ms cubic-bezier(.1, .7, .2, 1) calc(var(--r0) + var(--o-stamp) + 260ms) both; opacity: 0; }
 #stage.playing #result .inner-shake { animation: shake 240ms steps(4, end) calc(var(--r0) + var(--o-stamp) + 290ms) both; }
-#stage.playing #result .staff { animation: clipR 500ms var(--ease-hard) calc(var(--r0) + var(--o-staff)) both; }
+/* スタッフ枠は演出中は空。ボタンが出る時刻の目印（animationend）としてだけ動かす */
+#stage.playing #result .staff { animation: tick 500ms linear calc(var(--r0) + var(--o-staff)) both; }
 
 /* 退場（OK後）：結果面が右へ畳まれて紙に戻る */
-#stage.leaving #result { animation: wheelOut 320ms var(--ease-hard) both; }
+#stage.leaving #result::after { content: ""; position: absolute; inset: 0; z-index: 30; background: var(--bg); pointer-events: none;
+  transform-origin: 0 50%; animation: coverIn 320ms var(--ease-hard) both; }
 
 /* ?fast=1 / 動きを減らす設定：1秒未満・単純なカットとフェード */
 #stage.fast #shut, #stage.fast #card { display: none !important; }
@@ -421,8 +455,10 @@
 #stage.fast.playing #result { visibility: visible; animation: fadeIn 220ms linear both !important; }
 #stage.fast.playing .scr-wheel { animation: none; visibility: hidden; }
 #stage.fast.leaving #result { animation: none !important; }
+#stage.fast #result *::after, #stage.fast .scr-choose *::after { animation: none !important; content: none; display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .scr-choose .bigw .wm { animation: none; }
   .scr-choose.intro *, .scr-choose.quick * { animation: none !important; }
+  .scr-choose .takara::after, .scr-choose .tag::after { content: none !important; }
   .pbtn::before, .row .wipe, .scr-wheel .go .wipe { transition: none; }
 }

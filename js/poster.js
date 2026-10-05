@@ -101,19 +101,35 @@ export function installGrain(stageEl) {
   } catch { /* 粒子なしでも運用に支障はない */ }
 }
 
-/** ハーフトーン（協賛特別賞の飾り）。w×h に合わせて生成 */
-export function halftone(w, h, s = 14) {
-  let out = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMaxYMid slice" xmlns="http://www.w3.org/2000/svg" fill="#0A0E33" aria-hidden="true">`;
-  for (let r = 0; r * s * 0.866 < h + s; r++) {
-    for (let c = -1; c * s < w + s; c++) {
+/**
+ * ハーフトーン（協賛特別賞の飾り）を canvas に1回だけ描く（静止画。SVG の円を数百個ラスタライズし直さないため）。
+ * 元の図は 236×168 の座標系で、枠（boxW×boxH）に xMax・yMid の「スライス（はみ出す分は切る）」で収める。
+ * scale = 描画の解像度（CSS px あたりの画素数）。
+ */
+const HT_W = 236; const HT_H = 168;
+export function drawHalftone(canvas, boxW, boxH, scale = 2, s = 14) {
+  const sc = Math.max(1, Math.min(3, scale));
+  canvas.width = Math.max(1, Math.round(boxW * sc));
+  canvas.height = Math.max(1, Math.round(boxH * sc));
+  const g = canvas.getContext('2d');
+  if (!g) return;
+  const k = Math.max(boxW / HT_W, boxH / HT_H);
+  g.setTransform(sc, 0, 0, sc, 0, 0);
+  g.clearRect(0, 0, boxW, boxH);
+  g.translate(boxW - HT_W * k, (boxH - HT_H * k) / 2);
+  g.scale(k, k);
+  g.fillStyle = '#0A0E33';
+  g.beginPath();
+  for (let r = 0; r * s * 0.866 < HT_H + s; r++) {
+    for (let c = -1; c * s < HT_W + s; c++) {
       const x = c * s + (r % 2 ? s / 2 : 0);
       const y = r * s * 0.866 + s / 2;
-      const t = Math.max(0, Math.min(1, (x / w) * 0.85 + (1 - y / h) * 0.25));
+      const t = Math.max(0, Math.min(1, (x / HT_W) * 0.85 + (1 - y / HT_H) * 0.25));
       const rad = Math.pow(t, 1.1) * s * 0.62;
-      if (rad > 0.6 && x < w + 2) out += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rad.toFixed(2)}"/>`;
+      if (rad > 0.6 && x < HT_W + 2) { g.moveTo(x + rad, y); g.arc(x, y, rad, 0, Math.PI * 2); }
     }
   }
-  return `${out}</svg>`;
+  g.fill();
 }
 
 // ---------- 日本語の文節折り返し ----------

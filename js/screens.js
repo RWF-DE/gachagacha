@@ -25,9 +25,14 @@ export function chooseScreen({ intro, onStudent, onGuest }) {
   }, h('span', { class: 'wipe' }), h('span', { class: 'n' }, n),
   h('span', {}, h('span', { class: 't' }, title), h('span', { class: 's' }, sub)),
   (() => { const t = document.createElement('template'); t.innerHTML = arrow(); return t.content.firstChild; })());
+  // 各行は .rw で包む（登場のワイプ用：枠と中身を逆向きに transform で動かす。css/poster.css の rwOut / rwIn）
+  const wrap = (cls, btn) => h('div', { class: `rw ${cls}` }, btn);
   el.querySelector('.rows').append(
-    row('a', '01', '本校の学生', '学籍番号を入力します', 'choose-student', onStudent),
-    row('b', '02', '本校学生以外の方', '入力は不要です', 'choose-guest', onGuest));
+    wrap('a', row('a', '01', '本校の学生', '学籍番号を入力します', 'choose-student', onStudent)),
+    wrap('b', row('b', '02', '本校学生以外の方', '入力は不要です', 'choose-guest', onGuest)));
+  // 登場の間だけ枠で切る（終わったら外す）
+  el.classList.add('anim');
+  setTimeout(() => el.classList.remove('anim'), intro ? 2200 : 800);
   return el;
 }
 

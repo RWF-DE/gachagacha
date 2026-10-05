@@ -122,7 +122,8 @@ js/config.js, lottery.js, db.js  … 既定設定・純粋関数・IndexedDB（�
 js/app.js                … 画面状態機械・抽選フロー（保存→演出）・スタッフOK・起動復旧・アイドル復帰
 js/screens.js            … 区分選択／学籍番号／情報画面（終了・エラー・読込失敗）の組み立て
 js/stage.js              … 舵輪の画面・空転・演出（シャッター／タイトルカード）・結果カード・拡縮
-js/poster.js             … 舵輪SVG・ヘッダ帯・拡縮（fitStage）・紙の粒子・文字の割り付け
+js/poster.js             … 舵輪SVG・ヘッダ帯・拡縮（fitStage）・紙の粒子・ハーフトーン(canvas)・文字の割り付け
+js/perf.js               … ?perf=1 のときだけ出る rAF 間隔の計測表示（実機のカクつき確認用）
 js/sound.js              … 効果音（Web Audio 合成）
 js/admin.js, ui.js, util.js … スタッフ画面・共通UI・ユーティリティ
 sw.js, manifest.webmanifest, icons/*
@@ -167,5 +168,11 @@ stage.setDay(text)        // ヘッダの開催日（飾り。残数・確率は
   - 結果の登場：ヘッダ → 賞の名称（1文字ずつスラム）→ 罫線 → 景品名 → 「この画面のまま…」→ 抽選番号のスタンプ（揺れ）→ スタッフのボタン。
 - 賞に順位をつけない：Latin ラベルは非序数（`SPONSOR AWARD`／`RARE STICKER`／`STICKER`）。ステッカー賞の右肩は抽選の連番（`DRAW 0044`）で、賞の序列ではない。
 - 景品名は 1 行に収まるよう自動で縮小し、小さくなりすぎるときだけ文節の切れ目で折り返す（`splitPhrases`）。タイトルカードも賞の名称の長さに合わせて行分け・縮小する。
-- 性能（iPad Safari）：動かすのは transform / opacity / clip-path / visibility のみ。紙の粒子は静止タイル1枚（ブレンドなし）。アイドル中は rAF を回さない（空転中だけ）。
+- 性能（iPad Safari。実機で「カクつく」と報告があり、以下を守る）：
+  - **動かすのは transform / opacity / visibility のみ。clip-path・filter・box-shadow・mix-blend-mode・width/height/top/left は動かさない。** Safari は clip-path のアニメーションをコンポジタで動かせず、毎フレーム巨大な文字（Dela）ごと再描画になる。ワイプは「背景色のカバー（`::after`、または `.cv`）を `scaleX(1→0)` / `scaleY(1→0)` で外す」で表す（結果面は `--bg` 色。終端は scale 0 なので見た目は clip-path と同じ）。退場も同じ（`#result::after` が `scaleX(0→1)`）。要素の下に動く別要素（舵輪など）がある場所へのカバーは避ける。
+  - **重いものは動かす前に描いておく（pre-warm）。** 結果面は演出の序盤（200 ms 時点。結果面とタイトルカードを同じフレームにまとめる）から `opacity: .001` で「描画だけ」しておき、`cv` で opacity 1。初めて見える瞬間に巨大な文字（タイトルカード約 340px・賞の名称・景品名）をラスタライズさせない。大きな文字のレイヤー（`#card .chi`・`#result .cat .chi`）の `will-change: transform` は `#stage.playing` の間だけ。常時付けない（メモリ）。
+  - **レイアウトは来場者が回す前に済ませる。** 舵輪の画面が出て 0.7 秒後に `#stage.warm` を付け、結果面・シャッター・タイトルカードを `display:block` + 不可視にしてレイアウトしておく（`stage.js scheduleWarm`）。演出の頭では文字を差し替えて測り直すだけ。測定（`offsetWidth` など）は `layoutResult` に集約し、演出中（`playing`）は DOM を読み書きしない。
+  - **ハーフトーンは canvas に1回だけ描く**（枠の大きさ×解像度ごとにキャッシュ、解像度は最大 3 倍）。SVG の円を数百個ラスタライズし直さない。
+  - 効果音のノイズバッファは `unlock` 時に1回だけ作る（`sound.js ensure`）。紙の粒子は静止タイル1枚（ブレンドなし）。アイドル中は rAF を回さない（空転中だけ）。
+  - 変更後は `?perf=1` で実機の rAF 間隔を確認する（右上に `frames: N, >33ms: K, max: X ms`）。目安は 1 回の演出で >33ms が 0〜2 回、max が 50 ms 未満。
 - 管理用情報（残数・確率）はプレイヤー画面に出さない。

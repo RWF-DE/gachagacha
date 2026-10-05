@@ -14,7 +14,7 @@
 index.html / manifest.webmanifest / sw.js   アプリ本体・PWA
 css/   tokens.css（色・書体）・app.css（共通部品・スタッフ画面）・poster.css（プレイヤー画面・演出）
 js/    app.js（画面の流れ）・admin.js（スタッフ画面）・db.js（IndexedDB）・lottery.js（抽選）・config.js（既定の景品）
-       stage.js / screens.js / poster.js（ポスター画面・演出）・sound.js（効果音）
+       stage.js / screens.js / poster.js（ポスター画面・演出）・perf.js（?perf=1 の計測表示）・sound.js（効果音）
 fonts/ 自前ホストのフォント（woff2・OFL。dev/build-fonts.py で作り直せる）
 icons/ ホーム画面アイコン（dev/render-icons.mjs で icon.svg から書き出し）
 tests/ lottery.test.mjs（単体）・e2e.mjs（Playwright）
@@ -99,6 +99,18 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node tests/e2e.mjs
 - 配信するフォルダは `E2E_ROOT=/path` で変更できます（既定はこのリポジトリ）。
 - 演出は `?fast=1` で1秒未満に短縮されます（E2Eで使用）。
 - E2E が操作する要素：`data-testid="spin-button"`（タップでまわす）、`wheel`（舵輪）、`result-card`（結果カード）。
+
+### 演出のなめらかさを実機で確認する（`?perf=1`）
+
+URL の末尾に `?perf=1` を付けて開くと（例：`https://…/gacha/?perf=1`）、画面の右上に小さな表示が出ます（付けなければ何も出ません）。
+抽選の入力直後から結果カードが出るまでの描画間隔を記録し、演出ごとに1行で表示します：
+
+```
+sponsor  frames: 330, >33ms: 1, max: 41 ms (@0.2s)
+```
+
+`frames` = 描画した回数、`>33ms` = 2フレーム以上止まった回数、`max` = いちばん長く止まった時間（`@` は入力からの経過秒）。目安は `>33ms` が 0〜2 回・`max` が 50 ms 未満です。
+カクつきの調査用で、本番では付けません。動かし方のルール（transform / opacity だけ・clip-path を動かさない・先に描いておく）は docs/DESIGN.md「10. デザイン方針」の「性能」を参照してください。
 
 ## プライバシー
 
