@@ -176,13 +176,13 @@ async function onTurn() {
     safe(() => stage.showResultStatic(toReveal(result)));
   }
   host.replaceChildren();
-  mountOkButton(result.id);
+  mountOkButton(result.id, result.kind);
 }
 
 // ---------- スタッフOK（長押し） ----------
 const OK_LABEL = 'お渡し済み・OK（1秒長押し）';
 
-function mountOkButton(drawId) {
+function mountOkButton(drawId, drawKind) {
   const status = h('p', { class: 'ok-status', role: 'alert', 'data-testid': 'ok-status' });
   const btn = h('button', { type: 'button', class: 'ok-btn', 'data-testid': 'ok-button' },
     h('span', { class: 'fill' }),
@@ -210,7 +210,12 @@ function mountOkButton(drawId) {
       await refresh();
     },
   });
-  stage.resultActionsEl.replaceChildren(btn, status);
+  // 一般の方（kind==='guest'）だけ、スタッフ向けに「印を付けてからOK」を出す（運用ルール：1人1回は印で管理）
+  const note = drawKind === 'guest'
+    ? h('p', { class: 'staff-note', 'data-testid': 'staff-note' },
+      h('span', { class: 'sn-k' }, 'STAFF'), '一般の方：印（スタンプ/シール）を付けてからOK')
+    : null;
+  stage.resultActionsEl.replaceChildren(...(note ? [note] : []), btn, status);
 }
 
 // ---------- 起動・復旧 ----------
@@ -236,7 +241,7 @@ async function refresh() {
       safe(() => stage.setInteractive(false));
       host.replaceChildren();
       safe(() => stage.showResultStatic(toReveal(pending)));
-      mountOkButton(pending.id);
+      mountOkButton(pending.id, pending.kind);
       return;
     }
     if ((await db.getBoxTotal()) <= 0) return showClosed();

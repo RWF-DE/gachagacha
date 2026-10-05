@@ -3,7 +3,7 @@
 // - 本番中の強制リロードを避けるため skipWaiting は自動では呼ばない。
 //   スタッフ画面から {type:'SKIP_WAITING'} を受けたときだけ有効化する。
 // - ファイルを更新してデプロイするときは VERSION を上げること（上げないと古いキャッシュが使われ続ける）。
-const VERSION = 6;
+const VERSION = 7;
 const CACHE_PREFIX = 'yosoro-gacha-';
 const CACHE = `${CACHE_PREFIX}v${VERSION}`;
 

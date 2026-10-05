@@ -29,7 +29,7 @@ export function chooseScreen({ intro, onStudent, onGuest }) {
   const wrap = (cls, btn) => h('div', { class: `rw ${cls}` }, btn);
   el.querySelector('.rows').append(
     wrap('a', row('a', '01', '本校の学生', '学籍番号を入力します', 'choose-student', onStudent)),
-    wrap('b', row('b', '02', '本校学生以外の方', '入力は不要です', 'choose-guest', onGuest)));
+    wrap('b', row('b', '02', '本校学生以外の方', '入力不要・参加後に印をつけます', 'choose-guest', onGuest)));
   // 登場の間だけ枠で切る（終わったら外す）
   el.classList.add('anim');
   setTimeout(() => el.classList.remove('anim'), intro ? 2200 : 800);
