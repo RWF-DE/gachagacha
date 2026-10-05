@@ -353,8 +353,9 @@
 @keyframes colUp { from { transform: translateY(101%); } to { transform: none; } }
 @keyframes colDn { from { transform: translateY(-101%); } to { transform: none; } }
 @keyframes sweep { 0% { transform: translateX(-101%); visibility: visible; } 45% { transform: none; } 100% { transform: translateX(101%); visibility: visible; } }
-@keyframes slamUp { from { transform: translateY(104%); } to { transform: none; } }
-@keyframes slamOut { from { transform: none; } to { transform: translateY(-108%); } }
+/* Dela は字面と影が行ボックス(line-height .88)からはみ出すため、マスク外まで十分に送る */
+@keyframes slamUp { from { transform: translateY(135%); } to { transform: none; } }
+@keyframes slamOut { from { transform: none; } to { transform: translateY(-145%); } }
 @keyframes scaleX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes coverU { from { transform: scaleY(1); } to { transform: scaleY(0); } }
 @keyframes coverIn { from { transform: scaleX(0); } to { transform: scaleX(1); } }
