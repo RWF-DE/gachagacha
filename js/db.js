@@ -4,6 +4,7 @@
 //       トランザクション中に IDB 以外の非同期処理（await 等）を挟まない。
 import { DB_NAME, SCHEMA_VERSION, createDefaultConfig } from './config.js';
 import { pickPrize, normalizeStudentId, validateStudentId } from './lottery.js';
+import { normalizeSurvey, isStoredSurvey } from './survey.js';
 
 const STORES = ['meta', 'inventory', 'draws', 'students', 'logs'];
 
@@ -272,12 +273,21 @@ const DRAW_STORES = ['meta', 'inventory', 'draws', 'students'];
 
 /**
  * 抽選して保存する。resolve は transaction の complete 後。
- * 引数 {kind:'student'|'guest', studentId?}
+ * 引数 {kind:'student'|'guest', studentId?, survey?}
+ *   guest は survey {age, triggers, v}（js/survey.js で検証）が必須。student は survey を持てない（BAD_REQUEST）。
+ *   survey は選択肢のラベルを写して draw レコードに保存する（同じ単一トランザクション。DBのバージョン・ストアは変えない）。
  * 成功: 保存済みの draw（studentId は含めない）。
  * 失敗: DbError（code: NOT_SETUP / PENDING_EXISTS / INVALID_STUDENT / ALREADY_USED / BOX_EMPTY / BAD_REQUEST / DB_ERROR）
  */
-export async function draw({ kind, studentId }) {
+export async function draw({ kind, studentId, survey }) {
   if (kind !== 'student' && kind !== 'guest') throw new DbError('BAD_REQUEST', 'kind');
+  let svy = null;
+  if (kind === 'guest') {
+    svy = normalizeSurvey(survey);
+    if (!svy) throw new DbError('BAD_REQUEST', 'survey');
+  } else if (survey != null) {
+    throw new DbError('BAD_REQUEST', 'survey');
+  }
   const sid = kind === 'student' ? normalizeStudentId(studentId) : null;
   const tx = await beginTx(DRAW_STORES, 'readwrite'); // ← await はトランザクション作成前のみ
   return new Promise((resolve, reject) => {
@@ -335,6 +345,7 @@ export async function draw({ kind, studentId }) {
             drawnAt: now, confirmedAt: null,
           };
           if (kind === 'student') record.studentId = sid;
+          if (svy) record.survey = svy;
           tx.objectStore('draws').add(record); // id 重複なら ConstraintError → abort
           if (kind === 'student') tx.objectStore('students').add({ studentId: sid, drawId: label, at: now });
           metaStore.put({ key: 'drawSeq', value: seqMap });
@@ -473,6 +484,8 @@ export function validateBackup(obj) {
         || (d.kind !== 'student' && d.kind !== 'guest')) {
       return bad('抽選履歴が正しくありません');
     }
+    // survey は一般の方の抽選だけ・任意（古い履歴・古いバックアップには無い＝「未回答」）
+    if (d.survey != null && (d.kind !== 'guest' || !isStoredSurvey(d.survey))) return bad('アンケートの記録が正しくありません');
     drawIds.add(d.id);
   }
   const sids = new Set();

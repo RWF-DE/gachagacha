@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 process.env.PLAYWRIGHT_BROWSERS_PATH ||= '/opt/pw-browsers';
 const require = createRequire(import.meta.url);
@@ -17,6 +17,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || '/opt/node22/lib/n
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(process.env.E2E_ROOT || path.join(HERE, '..'));
 const PIN = '1234';
+// 選択肢（アンケート）は config.js のデータをそのまま期待値に使う（ラベルを直しても追従する）
+const CFG = await import(pathToFileURL(path.join(ROOT, 'js/config.js')).href);
+const AGE_LABEL = Object.fromEntries(CFG.SURVEY_AGES.map((a) => [a.id, a.label]));
+const TRIG_LABEL = Object.fromEntries(CFG.SURVEY_TRIGGERS.map((t) => [t.id, t.label]));
 
 // ---------- 静的サーバ ----------
 const MIME = {
@@ -84,7 +88,7 @@ const invSummary = (d) => sortBy(d.inventory, 'key').map((r) => [r.key, r.initia
 const snapshot = (d) => ({
   inventory: invSummary(d),
   students: sortBy(d.students, 'studentId').map((s) => [s.studentId, s.drawId]),
-  draws: sortBy(d.draws, 'id').map((x) => [x.id, x.prizeId, x.confirmedAt ? 1 : 0, x.studentId ?? null]),
+  draws: sortBy(d.draws, 'id').map((x) => [x.id, x.prizeId, x.confirmedAt ? 1 : 0, x.studentId ?? null, x.survey ? JSON.stringify(x.survey) : null]),
   pending: metaVal(d, 'pendingDrawId') ?? null,
   seq: metaVal(d, 'drawSeq'),
 });
@@ -139,6 +143,18 @@ async function spinAndWaitResult() {
   assert.ok(text.includes(rec.label), `結果カードに抽選番号 ${rec.label} がある: ${text}`);
   assert.ok(text.includes(rec.prizeName), `結果カードに景品名 ${rec.prizeName} がある`);
   assert.ok(text.includes(rec.categoryName), '結果カードに賞の名称がある');
+  if (rec.kind === 'guest') {
+    // 直前に答えたアンケートが、同じ抽選レコードに選択肢の並び順＋ラベルつきで保存されている
+    assert.ok(lastSurvey, 'アンケートに答えてから抽選している');
+    const want = CFG.SURVEY_TRIGGERS.map((t) => t.id).filter((id) => lastSurvey.triggers.includes(id));
+    assert.deepEqual(rec.survey, {
+      v: 1, age: lastSurvey.age, triggers: want,
+      ageLabel: AGE_LABEL[lastSurvey.age], triggerLabels: want.map((id) => TRIG_LABEL[id]),
+    });
+    surveyLog.push({ ...lastSurvey, triggers: want, dayId: rec.dayId });
+  } else {
+    assert.ok(!('survey' in rec), '学生の抽選に survey は付かない');
+  }
   return rec;
 }
 
@@ -147,7 +163,25 @@ async function confirmResult() {
   await page.waitForSelector(tid('ok-button'), { state: 'detached', timeout: 10000 });
 }
 
-async function startGuest() { await waitScreen('choose'); await page.click(tid('choose-guest')); }
+// 一般の方：区分選択 → アンケート（Q1 年齢 → Q2 きっかけ）→ 舵輪の手前まで
+const ANSWERS = [
+  ['college', ['sns', 'referral']], ['age-40s', ['annual']], ['elementary', ['poster', 'website', 'event-interest']],
+  ['age-40s', ['sns', 'kosen-interest']], ['high-school', ['other']], ['age-60plus', ['website']],
+];
+let answerNo = 0;
+let lastSurvey = null;       // 直前の startGuest で答えた内容（期待値）
+const surveyLog = [];        // 保存に成功した一般の抽選の回答（アンケートタブの期待値用。DB とは独立に数える）
+async function startGuest(answer = ANSWERS[answerNo++ % ANSWERS.length]) {
+  await waitScreen('choose');
+  await page.click(tid('choose-guest'));
+  await waitScreen('survey-age');
+  await page.click(tid(`age-${answer[0]}`));          // 選ぶと約250ms後に Q2 へ自動で進む
+  await waitScreen('survey-trigger');
+  for (const t of answer[1]) await page.click(tid(`trigger-${t}`));
+  await page.click(tid('survey-next'));
+  lastSurvey = { age: answer[0], triggers: answer[1] };
+}
+const checked = (id) => page.getAttribute(tid(id), 'aria-checked');
 async function startStudent(id) {
   await waitScreen('choose');
   await page.click(tid('choose-student'));
@@ -205,6 +239,146 @@ try {
     assert.ok(!txt.includes('6本'));
   });
 
+  await step('アンケート：Q1→Q2、必須・自動で進む・戻ると回答が残る・戻っても何も保存されない', async () => {
+    await waitScreen('choose');
+    await page.click(tid('choose-guest'));
+    await waitScreen('survey-age');
+    const q1 = await page.textContent(tid('screen-survey-age'));
+    assert.ok(q1.includes('Q1. 年齢を教えてください') && q1.includes('アンケート 1/2'), `Q1 の見出しと段階表示: ${q1.slice(0, 80)}`);
+    assert.ok(q1.includes('回答は個人が分からない形で集計し、電波祭の運営と協賛企業への来場者層の説明に使います。'), '集計の注意書き');
+    assert.equal(await page.locator('.chip').count(), CFG.SURVEY_AGES.length);
+    assert.deepEqual(await page.$$eval('.chip .lb', (els) => els.map((e) => e.textContent)), CFG.SURVEY_AGES.map((a) => a.label), '選択肢は config の順');
+    assert.equal(await page.locator('input, textarea').count(), 0, '氏名・連絡先・自由記述の欄はない');
+    assert.equal(await page.locator(tid('survey-next')).count(), 0, 'Q1 に「次へ」はない（選ぶと自動で進む）');
+    // タップした瞬間は「選んだ」表示で Q1 に留まり、少し待って Q2 へ（同じ tick で確認する）
+    const instant = await page.evaluate(() => {
+      const c = document.querySelector('[data-testid="age-age-30s"]');
+      c.click();
+      return { checked: c.getAttribute('aria-checked'), on: c.classList.contains('on'), still: !!document.querySelector('[data-testid="screen-survey-age"]'), mark: !!c.querySelector('.ck') };
+    });
+    assert.deepEqual(instant, { checked: 'true', on: true, still: true, mark: true }, '選択は反転＋✓で示され、すぐには遷移しない');
+    await waitScreen('survey-trigger');
+    const q2 = await page.textContent(tid('screen-survey-trigger'));
+    assert.ok(q2.includes('電波祭に来場したきっかけを教えてください。') && q2.includes('（複数選択可）') && q2.includes('アンケート 2/2'), 'Q2 の見出しと段階表示');
+    assert.ok(q2.includes('次へ（舵輪へ）') && q2.includes('回答は個人が分からない形で集計し'), '次へボタンと注意書き');
+    assert.deepEqual(await page.$$eval('.chip .lb', (els) => els.map((e) => e.textContent)), CFG.SURVEY_TRIGGERS.map((t) => t.label));
+    // 必須：0件では「次へ」が押せない（押しても進まない）
+    assert.equal(await page.locator(tid('survey-next')).isDisabled(), true, '0件では次へ無効');
+    await page.locator(tid('survey-next')).click({ force: true, timeout: 1000 }).catch(() => {});
+    assert.ok(await page.locator(tid('screen-survey-trigger')).isVisible(), '0件のまま進めない');
+    // 複数選択：トグル。1件以上で有効
+    await page.click(tid('trigger-sns'));
+    assert.equal(await page.locator(tid('survey-next')).isDisabled(), false);
+    await page.click(tid('trigger-sns'));
+    assert.equal(await checked('trigger-sns'), 'false');
+    assert.equal(await page.locator(tid('survey-next')).isDisabled(), true, '全部外すとまた無効');
+    await page.click(tid('trigger-referral'));
+    await page.click(tid('trigger-website'));
+    assert.deepEqual([await checked('trigger-referral'), await checked('trigger-website'), await checked('trigger-sns')], ['true', 'true', 'false']);
+    // 戻る → Q1 に回答（30代）が残る → もう一度選ぶと Q2 へ、Q2 の選択も残っている
+    await page.click(tid('back'));
+    await waitScreen('survey-age');
+    assert.equal(await checked('age-age-30s'), 'true', '戻っても Q1 の回答が残る');
+    assert.equal(await page.locator('.chip.on').count(), 1);
+    await page.click(tid('age-age-30s'));
+    await waitScreen('survey-trigger');
+    assert.deepEqual([await checked('trigger-referral'), await checked('trigger-website')], ['true', 'true'], 'Q2 の選択も残る');
+    // 舵輪から戻ると Q2（回答は残る）
+    await page.click(tid('survey-next'));
+    await waitScreen('wheel');
+    await page.click(tid('back'));
+    await waitScreen('survey-trigger');
+    assert.equal(await checked('trigger-referral'), 'true');
+    // Q2 → Q1 → 区分選択まで戻る。何も保存されず、次の人には回答が残らない
+    await page.click(tid('back'));
+    await waitScreen('survey-age');
+    await page.click(tid('back'));
+    await waitScreen('choose');
+    let d = await dumpDb();
+    assert.equal(d.draws.length, 0, '途中でやめても抽選は作られない');
+    assert.ok(d.inventory.filter((r) => r.dayId === 'day1').every((r) => r.remaining === r.initial), '在庫は減らない');
+    assert.ok(!JSON.stringify(d).includes('age-30s'), '回答は DB のどこにも書かれていない');
+    await page.click(tid('choose-guest'));
+    await waitScreen('survey-age');
+    assert.equal(await page.locator('.chip.on').count(), 0, '前の人の回答は消えている');
+    await page.click(tid('back'));
+    await waitScreen('choose');
+  });
+
+  await step('アンケートの寸法：1180×820・1024×768・820×1180 で全選択肢が収まる（チップ・ボタンは64px以上、重なりなし）', async () => {
+    const sizes = [[1180, 820], [1024, 768], [820, 1180]];
+    try {
+      await waitScreen('choose');
+      await page.click(tid('choose-guest'));
+      await waitScreen('survey-age');
+      for (const [w, h] of sizes) {
+        await page.setViewportSize({ width: w, height: h });
+        await sleep(150);
+        for (const screen of ['age', 'trigger']) {
+          if (screen === 'trigger' && (await page.locator(tid('screen-survey-age')).count())) { await page.click(tid(`age-${CFG.SURVEY_AGES[0].id}`)); await waitScreen('survey-trigger'); await sleep(150); }
+          const r = await page.evaluate(() => {
+            const vw = innerWidth; const vh = innerHeight; const bad = [];
+            const boxes = [...document.querySelectorAll('.chip, .sv-foot > *, .sv-h, .sv-step')].map((el) => ({ el, r: el.getBoundingClientRect() }));
+            for (const { el, r } of boxes) {
+              const name = el.className || el.tagName;
+              if (r.left < -0.5 || r.top < -0.5 || r.right > vw + 0.5 || r.bottom > vh + 0.5) bad.push(`out:${name}`);
+              if (el.classList.contains('chip')) {
+                const lb = el.querySelector('.lb');
+                if (lb.scrollWidth > lb.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1) bad.push(`clip:${el.dataset.id}`);
+              }
+              if ((el.classList.contains('chip') || el.classList.contains('sv-next') || el.classList.contains('back')) && r.height < 63.5) bad.push(`short:${name}:${r.height}`);
+            }
+            const g = document.querySelector('.sv-grid').getBoundingClientRect();
+            const f = document.querySelector('.sv-foot').getBoundingClientRect();
+            const hd = document.querySelector('.sv-h').getBoundingClientRect();
+            if (g.bottom > f.top + 0.5) bad.push('grid/foot overlap');
+            if (hd.bottom > g.top + 0.5) bad.push('heading/grid overlap');
+            const chips = [...document.querySelectorAll('.chip')].map((c) => c.getBoundingClientRect());
+            for (let i = 0; i < chips.length; i++) for (let j = i + 1; j < chips.length; j++) {
+              const a = chips[i]; const b = chips[j];
+              if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) bad.push(`chips overlap ${i}/${j}`);
+            }
+            return { bad, n: chips.length, scroll: document.documentElement.scrollHeight > vh + 1 };
+          });
+          assert.deepEqual(r.bad, [], `${w}x${h} ${screen}: ${r.bad.join(', ')}`);
+          assert.equal(r.n, screen === 'age' ? CFG.SURVEY_AGES.length : CFG.SURVEY_TRIGGERS.length);
+          assert.equal(r.scroll, false, `${w}x${h} ${screen}: スクロールが必要`);
+        }
+        // 次のサイズは Q1 から測り直す
+        await page.click(tid('back'));
+        await waitScreen('survey-age');
+      }
+    } finally {
+      await page.setViewportSize({ width: 1180, height: 820 });
+      await sleep(150);
+      if (await page.locator(tid('screen-survey-age')).count()) { await page.click(tid('back')); }
+      await waitScreen('choose');
+    }
+  });
+
+  await step('アンケートの検証（DB 層）：一般は survey 必須・不正は拒否・学生は survey を持てない', async () => {
+    const out = await page.evaluate(async () => {
+      const m = await import('./js/db.js');
+      const ok = { v: 1, age: 'age-20s', triggers: ['sns'] };
+      const cases = {
+        'guest/no-survey': { kind: 'guest' },
+        'guest/bad-age': { kind: 'guest', survey: { ...ok, age: 'nope' } },
+        'guest/no-triggers': { kind: 'guest', survey: { ...ok, triggers: [] } },
+        'guest/bad-trigger': { kind: 'guest', survey: { ...ok, triggers: ['nope'] } },
+        'guest/dup-trigger': { kind: 'guest', survey: { ...ok, triggers: ['sns', 'sns'] } },
+        'student/with-survey': { kind: 'student', studentId: '2499999', survey: ok },
+      };
+      const res = {};
+      for (const [k, args] of Object.entries(cases)) { try { await m.draw(args); res[k] = 'NO_ERROR'; } catch (e) { res[k] = e.code; } }
+      return res;
+    });
+    for (const [k, v] of Object.entries(out)) assert.equal(v, 'BAD_REQUEST', k);
+    const d = await dumpDb();
+    assert.equal(d.draws.length, 0);
+    assert.equal(d.students.length, 0, '拒否された学生は参加済みにならない');
+    assert.equal(metaVal(d, 'pendingDrawId'), undefined);
+  });
+
   await step('Service Worker が制御し precache が揃う', async () => {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 15000 });
@@ -218,6 +392,8 @@ try {
     assert.match(rec.label, /^1-0001$/);
     assert.equal(rec.kind, 'guest');
     assert.equal(rec.studentId, undefined);
+    assert.equal(rec.survey.ageLabel, '大学生・専門学生');
+    assert.deepEqual(rec.survey.triggerLabels, ['家族・友人・知人からの紹介', 'SNS（Instagram・Xなど）'], '選択肢の順でラベルが保存される');
     await longPressOk(300); // 短押し
     await sleep(200);
     assert.ok(await page.locator(tid('ok-button')).isVisible(), '短押しでは閉じない');
@@ -235,14 +411,17 @@ try {
     await waitScreen('choose');
     await page.click(tid('choose-student'));
     await waitScreen('student');
+    assert.equal(await page.locator('[data-testid^="screen-survey"]').count(), 0, '学生にアンケートは出ない');
     await pressKeys('tenkey', '241');
     await page.click(tid('tenkey-ok'));
     assert.ok((await page.textContent(tid('student-error'))).includes('入力してください'), '桁数不足のエラー');
     await pressKeys('tenkey', '2345');
     await page.click(tid('tenkey-ok'));
+    assert.equal(await page.locator('[data-testid^="screen-survey"]').count(), 0, '学籍番号のあとも舵輪へ直行（アンケートなし）');
     const rec = await spinAndWaitResult();
     assert.equal(rec.label, '1-0002');
     assert.equal(rec.kind, 'student');
+    assert.equal('survey' in rec, false, '学生の抽選レコードに survey がない');
     await confirmResult();
     await waitScreen('choose');
     const d = await dumpDb();
@@ -288,7 +467,7 @@ try {
     const codes = await page.evaluate(async () => {
       const m = await import('./js/db.js');
       const out = [];
-      for (const args of [{ kind: 'guest' }, { kind: 'student', studentId: '2499999' }]) {
+      for (const args of [{ kind: 'guest', survey: { v: 1, age: 'age-20s', triggers: ['sns'] } }, { kind: 'student', studentId: '2499999' }]) {
         try { await m.draw(args); out.push('NO_ERROR'); } catch (e) { out.push(e.code); }
       }
       return out;
@@ -412,6 +591,29 @@ try {
     await closeAdmin();
   });
 
+  await step('survey なしの旧バックアップも復元できる（未回答として扱われる）', async () => {
+    const legacy = JSON.parse(JSON.stringify(backupA));
+    assert.ok(legacy.draws.some((x) => x.survey), 'バックアップには survey が入っている');
+    for (const x of legacy.draws) delete x.survey;
+    const legacyFile = path.join(downloadDir, 'legacy.json');
+    fs.writeFileSync(legacyFile, JSON.stringify(legacy));
+    await openAdmin('data');
+    await page.setInputFiles(tid('restore-file'), legacyFile);
+    await page.click(tid('dlg-ok'));
+    await page.waitForFunction(() => document.querySelector('[data-testid="toast"]')?.textContent.includes('復元しました'));
+    await closeAdmin();
+    await page.waitForSelector(tid('ok-button'));
+    const d = await dumpDb();
+    assert.ok(d.draws.every((x) => !('survey' in x)), '旧バックアップの抽選に survey はない');
+    surveyLog.length = 0;           // 1-0001 は「未回答」になった
+    await openAdmin('survey');
+    const t = await page.textContent(tid('tab-survey'));
+    assert.ok(t.includes('一般の抽選1') && t.includes('回答あり0') && t.includes('未回答1'), `旧データは未回答: ${t.slice(0, 200)}`);
+    await closeAdmin();
+    await confirmResult();
+    await waitScreen('choose');
+  });
+
   await step('くじ箱が空になると抽選終了・残数はマイナスにならない', async () => {
     let n = 0;
     while (n++ < 12) {
@@ -429,7 +631,7 @@ try {
     assert.equal(d.inventory.filter((r) => r.dayId === 'day1').reduce((s, r) => s + r.remaining, 0), 0);
     const code = await page.evaluate(async () => {
       const m = await import('./js/db.js');
-      try { await m.draw({ kind: 'guest' }); return 'NO_ERROR'; } catch (e) { return e.code; }
+      try { await m.draw({ kind: 'guest', survey: { v: 1, age: 'age-20s', triggers: ['sns'] } }); return 'NO_ERROR'; } catch (e) { return e.code; }
     });
     assert.equal(code, 'BOX_EMPTY');
     assert.ok((await dumpDb()).inventory.every((r) => r.remaining >= 0));
@@ -530,6 +732,119 @@ try {
     assert.equal(rec.label, '2-0002');
     await confirmResult();
     await waitScreen('choose');
+  });
+
+  await step('アンケートタブ：件数・割合・クロス集計が一般の抽選の回答と一致（全日程／日別）', async () => {
+    const d = await dumpDb();
+    const guests = d.draws.filter((x) => x.kind === 'guest');
+    assert.equal(surveyLog.length, guests.filter((x) => x.survey).length, '保存された回答の数 = 答えた数');
+    assert.ok(surveyLog.some((x) => x.dayId === 'day1') && surveyLog.some((x) => x.dayId === 'day2'), '両日にまたがるデータ');
+    await openAdmin('survey');
+    const num = async (id) => Number(await page.textContent(`${tid(id)} b`));
+    const check = async (scope, rows, unanswered) => {
+      const answered = rows.length;
+      assert.equal(await num('sv-answered'), answered, `${scope} 回答あり`);
+      assert.equal(await num('sv-unanswered'), unanswered, `${scope} 未回答`);
+      assert.equal(await num('sv-total'), answered + unanswered, `${scope} 一般の抽選`);
+      for (const a of CFG.SURVEY_AGES) {
+        const n = rows.filter((r) => r.age === a.id).length;
+        assert.equal(await page.getAttribute(tid(`sv-age-${a.id}`), 'data-count'), String(n), `${scope} 年齢 ${a.label}`);
+        const txt = await page.textContent(tid(`sv-age-${a.id}`));
+        const p = answered ? (Math.round((n / answered) * 1000) / 10).toFixed(1) : '0.0';
+        assert.ok(txt.includes(a.label) && txt.includes(`${p}%`), `${scope} ${a.label} の割合 ${p}%: ${txt}`);
+      }
+      for (const t of CFG.SURVEY_TRIGGERS) {
+        const n = rows.filter((r) => r.triggers.includes(t.id)).length;
+        assert.equal(await page.getAttribute(tid(`sv-trig-${t.id}`), 'data-count'), String(n), `${scope} きっかけ ${t.label}`);
+        for (const a of CFG.SURVEY_AGES) {
+          const c = rows.filter((r) => r.age === a.id && r.triggers.includes(t.id)).length;
+          assert.equal(await page.textContent(tid(`sv-cross-${a.id}-${t.id}`)), String(c), `${scope} クロス ${a.label}×${t.label}`);
+        }
+      }
+    };
+    const day1 = surveyLog.filter((r) => r.dayId === 'day1');
+    const day2 = surveyLog.filter((r) => r.dayId === 'day2');
+    await check('全日程', surveyLog, 1);          // 未回答 1 件 = 旧バックアップから復元した 1-0001
+    await page.click(tid('sv-scope-day1'));
+    await check('1日目', day1, 1);
+    await page.click(tid('sv-scope-day2'));
+    await check('2日目', day2, 0);
+    // 学生は集計に入らない
+    assert.ok(d.draws.some((x) => x.kind === 'student'));
+    await page.click(tid('sv-scope-all'));
+    // 集計CSV
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click(tid('sv-csv'))]);
+    const csvPath = path.join(downloadDir, 'survey.csv');
+    await dl.saveAs(csvPath);
+    const csv = fs.readFileSync(csvPath, 'utf8');
+    assert.ok(csv.startsWith('\uFEFF'), 'BOM つき（Excel で文字化けしない）');
+    assert.ok(csv.includes('Q1 年齢') && csv.includes('Q2 きっかけ') && csv.includes('年齢 × きっかけ（人数）'));
+    const ageRow = csv.split('\r\n').find((l) => l.startsWith('40代,'));
+    assert.equal(ageRow.split(',')[1], String(surveyLog.filter((r) => r.age === 'age-40s').length), 'CSV の 40代 の人数');
+    await closeAdmin();
+  });
+
+  await step('履歴CSV（確認用）に 年齢・きっかけ の列が入る（一般のみ・／区切り）', async () => {
+    await openAdmin('data');
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click(tid('csv-masked'))]);
+    const csvPath = path.join(downloadDir, 'draws.csv');
+    await dl.saveAs(csvPath);
+    const lines = fs.readFileSync(csvPath, 'utf8').replace(/^\uFEFF/, '').split('\r\n');
+    const head = lines[0].split(',');
+    assert.deepEqual(head.slice(-2), ['年齢', 'きっかけ']);
+    const d = await dumpDb();
+    const row = (label) => lines.find((l) => l.startsWith(`${label},`));
+    const withSv = d.draws.find((x) => x.kind === 'guest' && x.survey && x.survey.triggers.length > 1);
+    const r1 = row(withSv.label);
+    assert.ok(r1.includes(`,${withSv.survey.ageLabel},`) && r1.includes(withSv.survey.triggerLabels.join('／')), `回答つきの行: ${r1}`);
+    const noSv = d.draws.find((x) => x.kind === 'guest' && !x.survey);
+    assert.ok(row(noSv.label).endsWith('未回答,未回答'), '旧データは未回答');
+    const stu = d.draws.find((x) => x.kind === 'student');
+    assert.ok(row(stu.label).endsWith(',,'), '学生は空欄');
+    await closeAdmin();
+  });
+
+  await step('アンケートの放置でも待機に戻る（アイドル）／操作中は戻らない', async () => {
+    // 90秒は待てないので、サービスワーカー無しの別コンテキストで config.js の IDLE_RESET_MS だけ 1.2 秒に差し替える
+    const ctx2 = await browser.newContext({ viewport: { width: 1180, height: 820 }, serviceWorkers: 'block' });
+    const p2 = await ctx2.newPage();
+    try {
+      await p2.route('**/js/config.js', async (route) => {
+        const resp = await route.fetch();
+        const body = (await resp.text()).replace(/IDLE_RESET_MS = 90 \* 1000/, 'IDLE_RESET_MS = 1200');
+        assert.ok(body.includes('IDLE_RESET_MS = 1200'), 'config.js の差し替えに失敗');
+        await route.fulfill({ response: resp, body });
+      });
+      await p2.goto(`${BASE}icons/icon.svg`);
+      await p2.evaluate(async () => {
+        const c = await import('/js/config.js'); const m = await import('/js/db.js');
+        const cfg = c.createDefaultConfig(); cfg.pinHash = 'x';
+        await m.initialize({ config: cfg, activeDayId: 'day1', initials: c.createDefaultInitials() });
+      });
+      await p2.goto(URL_FAST);
+      const w2 = (name) => p2.waitForSelector(tid(`screen-${name}`), { timeout: 8000 });
+      await w2('choose');
+      await p2.click(tid('choose-guest'));
+      await w2('survey-age');
+      await w2('choose');                                    // Q1 で放置 → 待機へ
+      await p2.click(tid('choose-guest'));
+      await w2('survey-age');
+      await p2.click(tid('age-age-20s'));
+      await w2('survey-trigger');
+      for (let i = 0; i < 4; i++) { await sleep(700); await p2.click(tid('trigger-sns')); }   // 操作中は 1.2 秒を超えても戻らない
+      assert.ok(await p2.locator(tid('screen-survey-trigger')).isVisible(), '操作のたびにタイマーが延びる');
+      await w2('choose');                                    // Q2 で放置 → 待機へ
+      await p2.click(tid('choose-guest'));
+      await w2('survey-age');
+      assert.equal(await p2.locator('.chip.on').count(), 0, '放置で戻ると回答は消える');
+      const n = await p2.evaluate(() => new Promise((resolve) => {
+        const r = indexedDB.open('yosoro-gacha');
+        r.onsuccess = () => { const q = r.result.transaction('draws').objectStore('draws').count(); q.onsuccess = () => { r.result.close(); resolve(q.result); }; };
+      }));
+      assert.equal(n, 0, '放置では何も保存されない');
+    } finally {
+      await ctx2.close();
+    }
   });
 
   await step('JS エラー・学籍番号の漏えいがない', async () => {

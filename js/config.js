@@ -54,6 +54,38 @@ export function createDefaultInitials() {
 /** 長押し時間（ms） */
 export const LONG_PRESS_OK_MS = 1000;      // スタッフ「お渡し済み・OK」
 export const LONG_PRESS_ADMIN_MS = 3000;   // ロゴ長押しでスタッフ画面
-export const IDLE_RESET_MS = 90 * 1000;    // 入力途中で放置されたら待機へ戻す
+export const IDLE_RESET_MS = 90 * 1000;    // 入力・アンケート途中で放置されたら待機へ戻す
 export const PIN_MIN = 4;
 export const PIN_MAX = 8;
+
+// ---------- 来場者アンケート（本校学生以外の方だけ。DESIGN.md §3/§4/§6） ----------
+// 選択肢は表示順どおり。id は保存データに入る「変えない名前」、label は画面表示用（保存時に履歴へも写す）。
+// 文言を直すときは label だけ変える。選択肢を足す・消すのは自由（古い履歴は保存時のラベルで集計される）。
+export const SURVEY_VERSION = 1;
+
+export const SURVEY_AGES = [
+  { id: 'preschool', label: '未就学児' },
+  { id: 'elementary', label: '小学生' },
+  { id: 'junior-high', label: '中学生' },
+  { id: 'high-school', label: '高校生' },
+  { id: 'college', label: '大学生・専門学生' },
+  { id: 'age-20s', label: '20代' },
+  { id: 'age-30s', label: '30代' },
+  { id: 'age-40s', label: '40代' },
+  { id: 'age-50s', label: '50代' },
+  { id: 'age-60plus', label: '60代以上' },
+];
+
+export const SURVEY_TRIGGERS = [
+  { id: 'referral', label: '家族・友人・知人からの紹介' },
+  { id: 'sns', label: 'SNS（Instagram・Xなど）' },
+  { id: 'website', label: 'ホームページ' },
+  { id: 'poster', label: 'ポスター・チラシ' },
+  { id: 'annual', label: '毎年参加している' },
+  { id: 'event-interest', label: 'イベント内容に興味があった' },
+  { id: 'kosen-interest', label: '熊本高専に興味があった' },
+  { id: 'other', label: 'その他' },
+];
+
+export const SURVEY_NOTICE = '回答は個人が分からない形で集計し、電波祭の運営と協賛企業への来場者層の説明に使います。';
+export const SURVEY_ADVANCE_MS = 250;   // Q1 で選んでから Q2 へ進むまでの「選んだ」確認の時間

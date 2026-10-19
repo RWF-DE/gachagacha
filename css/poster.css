@@ -203,6 +203,87 @@
 .id-input { width: 100%; min-width: 0; min-height: 112px; padding: 0 18px; border: 4px solid var(--ink); background: var(--paper); color: var(--ink); font: 900 64px/1 var(--f-num); letter-spacing: .04em; text-align: center; }
 .id-input:focus { outline: 4px solid var(--red); outline-offset: 0; }
 
+/* ================= 来場者アンケート（survey：本校学生以外の方。Q1 年齢 → Q2 きっかけ） =================
+   縦に「ステップ帯 → 設問 → 選択肢のチップ（残りの高さいっぱい）→ 足元（戻る・注意書き・次へ）」。
+   選択は「反転（インク地に紙色の文字）＋✓」で示し、色だけに頼らない。登場は transform/opacity のみ（チップが順に立ち上がる）。 */
+.scr-survey { display: flex; flex-direction: column; gap: 18px; padding: 92px 40px 30px; background: var(--paper); }
+.scr-survey .sv-step { position: static; align-items: center; gap: 12px; }
+.scr-survey .sv-step .stp { font-family: var(--f-body); font-weight: 700; font-size: 22px; letter-spacing: .06em; text-transform: none; }
+.scr-survey .sv-step .bars { display: inline-flex; gap: 5px; margin-left: 6px; }
+.scr-survey .sv-step .bars i { width: 36px; height: 10px; border: 3px solid var(--ink); display: block; }
+.scr-survey .sv-step .bars i.on { background: var(--red); border-color: var(--red); }
+.sv-h { font-family: var(--f-disp); font-weight: 400; font-size: 52px; line-height: 1.18; letter-spacing: -.015em; color: var(--ink); }
+.sv-h em { font-style: normal; color: var(--blue); margin-right: .1em; }
+.sv-h .ph.sub { display: block; width: fit-content; margin-top: 10px; font-family: var(--f-body); font-size: 28px; letter-spacing: .02em; background: var(--red); color: var(--paper); padding: 2px 14px; line-height: 1.35; }
+.sv-trigger .sv-h { font-size: 44px; }
+
+.sv-grid { flex: 1 1 auto; min-height: 0; display: grid; gap: 14px; }
+.sv-age { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.sv-trig { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(4, minmax(0, 1fr)); }
+
+.chip {
+  position: relative; display: flex; min-width: 0; min-height: 64px; text-align: left; touch-action: manipulation;
+  border: 4px solid var(--ink); background: var(--paper); color: var(--ink);
+  animation: svIn .38s var(--ease-slam) calc(var(--i, 0) * 32ms) both;
+}
+.chip:active { transform: scale(.975); }
+.chip .n { font-family: var(--f-mono); font-weight: 500; font-size: 15px; letter-spacing: .06em; }
+.chip .lb { font-family: var(--f-disp); font-weight: 400; letter-spacing: -.01em; line-height: 1.2; min-width: 0; }
+.chip .box { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border: 4px solid currentColor; color: var(--ink); background: var(--paper); }
+.chip .box.rd { border-radius: 50%; }
+.chip .box .ck { width: 28px; height: 28px; opacity: 0; transform: scale(.4); }
+.chip.on { background: var(--ink); color: var(--paper); }
+.chip.on .box { background: var(--red); border-color: var(--red); color: var(--paper); }
+.chip.on .box .ck { opacity: 1; transform: none; animation: svPop .22s var(--ease-slam) both; }
+.chip.on .n { color: var(--paper); }
+
+/* Q1：縦に「番号＋丸」「ラベル」（横置き 5×2）。縦置き 2×5 では横並びの行になる */
+.sv-age .chip { flex-direction: column; justify-content: space-between; padding: 14px 16px 16px; }
+.sv-age .chip .n { position: absolute; left: 16px; top: 14px; }
+.sv-age .chip .box { align-self: flex-end; }
+.sv-age .chip .lb { font-size: 33px; }
+/* Q2：横並び（チェック四角＋ラベル）。2列×4行 */
+.sv-trig .chip { flex-direction: row; align-items: center; gap: 18px; padding: 0 22px 0 18px; }
+.sv-trig .chip .n { display: none; }
+.sv-trig .chip .box { order: -1; }
+.sv-trig .chip .lb { font-size: 31px; }
+
+@keyframes svIn { from { transform: translateY(22px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes svPop { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.sv-foot { flex: none; display: flex; align-items: center; gap: 22px; }
+.sv-note { flex: 1 1 0; min-width: 0; margin: 0; text-wrap: balance; font-size: 21px; line-height: 1.5; letter-spacing: .02em; padding-left: 16px; border-left: 6px solid var(--red); }
+.sv-next {
+  position: relative; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 20px; width: 392px; height: 88px; padding: 0 26px 0 30px;
+  background: var(--red); color: var(--paper); font-family: var(--f-disp); font-weight: 400; font-size: 34px; letter-spacing: -.02em; overflow: hidden; touch-action: manipulation;
+}
+.sv-next .wipe { position: absolute; inset: 0; background: var(--ink); transform: translateY(101%); transition: transform .3s var(--ease-hard); }
+.sv-next:active:not(:disabled) .wipe { transform: none; }
+.sv-next > *:not(.wipe) { position: relative; }
+.sv-next .t { display: flex; flex-wrap: wrap; text-align: left; line-height: 1.1; }
+.sv-next .ar { width: 48px; height: 48px; flex: none; }
+.sv-next:disabled { background: transparent; color: var(--ink-soft); border: 4px dashed var(--ink-soft); padding: 0 22px 0 26px; }
+.sv-next:disabled .ar { opacity: .5; }
+
+/* 縦置き：Q1 は 2列×5行の横並びの行、足元は注意書きを上に出して「戻る／次へ」を1行に */
+[data-o=p] .scr-survey { padding-bottom: 34px; }
+[data-o=p] .sv-trigger .sv-h { font-size: 42px; }
+[data-o=p] .sv-age { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, minmax(0, 1fr)); }
+[data-o=p] .sv-age .chip { flex-direction: row; align-items: center; justify-content: flex-start; gap: 16px; padding: 0 20px 0 18px; }
+[data-o=p] .sv-age .chip .n { display: none; }
+[data-o=p] .sv-age .chip .box { order: -1; align-self: center; }
+[data-o=p] .sv-age .chip .lb { font-size: 34px; }
+[data-o=p] .sv-trig .chip .lb { font-size: 28px; }
+[data-o=p] .sv-foot { flex-wrap: wrap; row-gap: 14px; }
+[data-o=p] .sv-note { order: -1; flex: 1 0 100%; font-size: 22px; }
+[data-o=p] .sv-next { margin-left: auto; width: 420px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chip, .chip.on .box .ck { animation: none !important; }
+  .sv-next .wipe { transition: none; }
+}
+#stage.fast .scr-survey .chip, #stage.fast .scr-survey .chip .ck { animation: none !important; }
+
 /* ================= 抽選（wheel） ================= */
 .scr-wheel { background: var(--paper); }
 .scr-wheel h2 { position: absolute; left: 40px; top: 128px; font-family: var(--f-disp); font-weight: 400; font-size: 60px; line-height: 1.16; letter-spacing: -.015em; color: var(--ink); white-space: nowrap; }
@@ -468,3 +549,4 @@
   .scr-choose .takara::after, .scr-choose .tag::after { content: none !important; }
   .pbtn::before, .row .wipe, .scr-wheel .go .wipe { transition: none; }
 }
+.sv-foot .pbtn { min-height: 78px; }   /* 1024×768 の縮小（約0.87倍）でも実寸64px以上 */

@@ -3,6 +3,8 @@ import * as db from './db.js';
 import { sound } from './sound.js';
 import { validateBackup } from './db.js';
 import { createDefaultConfig, createDefaultInitials, PIN_MIN, PIN_MAX } from './config.js';
+import { splitPhrases } from './poster.js';
+import { aggregateSurvey, ageLabelOf, triggerLabelsOf, pct, UNANSWERED } from './survey.js';
 import { h, hashPin, fmtDateTime, fileStamp, maskId, toCsv, saveFile } from './util.js';
 import { createTenkey, openDialog, confirmDialog, alertDialog, toast } from './ui.js';
 
@@ -94,7 +96,7 @@ function showPin() {
 // ---------- メイン ----------
 const TABS = [
   ['status', '状態'], ['inventory', '在庫'], ['prizes', '景品設定'],
-  ['history', '履歴'], ['data', 'バックアップ・リセット'], ['settings', '設定'],
+  ['history', '履歴'], ['survey', 'アンケート'], ['data', 'バックアップ・リセット'], ['settings', '設定'],
 ];
 let currentTab = 'status';
 
@@ -108,7 +110,7 @@ function showMain(tab = currentTab) {
         h('button', { type: 'button', class: `a-tab${id === tab ? ' is-on' : ''}`, 'data-testid': `tabbtn-${id}`, onclick: () => showMain(id) }, label))),
       btn('閉じる', closeOverlay, 'primary', { 'data-testid': 'admin-close' })),
     body);
-  const renderers = { status: renderStatus, inventory: renderInventory, prizes: renderPrizes, history: renderHistory, data: renderData, settings: renderSettings };
+  const renderers = { status: renderStatus, inventory: renderInventory, prizes: renderPrizes, history: renderHistory, survey: renderSurvey, data: renderData, settings: renderSettings };
   renderers[tab](body).catch((e) => { body.replaceChildren(h('p', { class: 'msg msg--error' }, `読み込めませんでした（${e?.code || 'ERR'}）`)); });
 }
 const rerender = () => showMain(currentTab);
@@ -360,6 +362,80 @@ async function renderHistory(el) {
     list);
 }
 
+// ---------- アンケートタブ（本校学生以外の方の回答の集計） ----------
+const SCOPE_ALL = 'all';
+
+/** 横棒（幅は割合。CSS だけで描く）。色だけに頼らず、数と％も必ず並べる。 */
+function barRow(testid, label, count, of, retired) {
+  const p = pct(count, of);
+  return h('div', { class: 'bar-row', 'data-testid': testid, 'data-count': String(count) },
+    h('div', { class: 'bar-l' }, label, retired ? h('span', { class: 'bar-old' }, '旧選択肢') : null),
+    h('div', { class: 'bar-t', 'aria-hidden': 'true' }, h('i', { style: { width: `${p}%` } })),
+    h('div', { class: 'bar-n' }, h('b', {}, String(count)), h('span', {}, `${p.toFixed(1)}%`)));
+}
+
+/** 集計表の見出し：文節ごとに折り返し、文節の途中では折らない（nw）。 */
+const nwPhrases = (text) => splitPhrases(text).map((x) => h('span', { class: 'ph nw' }, x));
+
+function surveyCsvRows(agg, scopeLabel) {
+  const rows = [['来場者アンケート集計（本校学生以外の方）', scopeLabel], [],
+    ['一般の抽選数', agg.total], ['回答あり', agg.answered], [UNANSWERED, agg.unanswered], [],
+    ['Q1 年齢', '人数', '回答者に対する割合（%）']];
+  for (const r of agg.ages) rows.push([r.label, r.count, pct(r.count, agg.answered)]);
+  rows.push([], ['Q2 きっかけ（複数選択可。割合の合計は100%を超える）', '人数', '回答者に対する割合（%）']);
+  for (const r of agg.triggers) rows.push([r.label, r.count, pct(r.count, agg.answered)]);
+  rows.push([], ['年齢 × きっかけ（人数）', ...agg.triggers.map((t) => t.label)]);
+  for (const a of agg.ages) rows.push([a.label, ...agg.triggers.map((t) => agg.cross[a.id]?.[t.id] || 0)]);
+  return rows;
+}
+
+async function renderSurvey(el) {
+  const [draws, cfg] = await Promise.all([db.listDraws(), db.getConfig()]);
+  let scope = SCOPE_ALL;
+  const view = h('div', { class: 'sv-admin' });
+  const scopes = [[SCOPE_ALL, '全日程'], ...cfg.days.map((d) => [d.id, d.label])];
+  const scopeLabel = () => scopes.find(([id]) => id === scope)[1];
+  const aggNow = () => aggregateSurvey(draws, { dayId: scope === SCOPE_ALL ? null : scope });
+
+  const paint = () => {
+    const agg = aggNow();
+    const crossMax = Math.max(1, ...agg.ages.flatMap((a) => agg.triggers.map((t) => agg.cross[a.id]?.[t.id] || 0)));
+    const noData = agg.answered === 0;
+    view.replaceChildren(...[
+      h('div', { class: 'a-row' },
+        ...scopes.map(([id, label]) => h('button', {
+          type: 'button', class: `btn btn--sm ${id === scope ? 'btn--primary' : 'btn--ghost'}`, 'aria-pressed': String(id === scope), 'data-testid': `sv-scope-${id}`,
+          onclick: () => { scope = id; paint(); },
+        }, label)),
+        h('span', { class: 'a-spacer' }),
+        btn('集計をCSVで書き出す', () => saveFile(new File(['﻿' + toCsv(surveyCsvRows(aggNow(), scopeLabel()))], `yosoro-gacha-survey-${scope}-${fileStamp()}.csv`, { type: 'text/csv' })), 'secondary', { 'data-testid': 'sv-csv' })),
+      card(`${scopeLabel()}の回答数`,
+        h('div', { class: 'sv-sum' },
+          h('div', { class: 'sv-stat', 'data-testid': 'sv-total' }, h('small', {}, '一般の抽選'), h('b', {}, String(agg.total))),
+          h('div', { class: 'sv-stat', 'data-testid': 'sv-answered' }, h('small', {}, '回答あり'), h('b', {}, String(agg.answered))),
+          h('div', { class: 'sv-stat', 'data-testid': 'sv-unanswered' }, h('small', {}, UNANSWERED), h('b', {}, String(agg.unanswered)))),
+        h('p', { class: 'a-note' }, '割合は「回答あり」の人数に対する値です。未回答は、アンケート導入前の抽選や古いバックアップの分です。学生（学籍番号）は対象外です。')),
+      noData ? h('p', { class: 'a-sub', 'data-testid': 'sv-empty' }, 'まだ回答はありません') : null,
+      card('Q1 年齢', h('div', { class: 'sv-bars' }, agg.ages.map((r) => barRow(`sv-age-${r.id}`, r.label, r.count, agg.answered, r.retired)))),
+      card('Q2 きっかけ（複数選択可）',
+        h('p', { class: 'a-note' }, '1人が複数選べるため、割合の合計は100%を超えます。'),
+        h('div', { class: 'sv-bars' }, agg.triggers.map((r) => barRow(`sv-trig-${r.id}`, r.label, r.count, agg.answered, r.retired)))),
+      card('年齢 × きっかけ（人数）',
+        h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl tbl-cross', 'data-testid': 'sv-cross' },
+          h('thead', {}, h('tr', {}, h('th', { class: 'l' }, nwPhrases('年齢＼'), nwPhrases('きっかけ')), ...agg.triggers.map((t) => h('th', { class: 'l' }, splitPhrases(t.label).map((x) => h('span', { class: `ph${x.length <= 6 || /[A-Za-z]/.test(x) ? ' nw' : ''}` }, x)))))),
+          h('tbody', {}, agg.ages.map((a) => h('tr', {}, h('td', { class: 'l strong2' }, nwPhrases(a.label)),
+            ...agg.triggers.map((t) => {
+              const n = agg.cross[a.id]?.[t.id] || 0;
+              return h('td', { class: n ? 'has' : '', 'data-testid': `sv-cross-${a.id}-${t.id}`, style: n ? { backgroundColor: `rgba(26, 51, 224, ${(0.12 + 0.4 * (n / crossMax)).toFixed(2)})` } : {} }, String(n));
+            }))))))),
+    ].filter(Boolean));
+  };
+  paint();
+  el.replaceChildren(
+    h('p', { class: 'a-note' }, '本校学生以外の方が抽選の前に答えたアンケートの集計です。個人を特定する情報は集めていません。回答はこのiPadとバックアップファイルにだけ保存されます。'),
+    view);
+}
+
 // ---------- バックアップ・リセットタブ ----------
 async function renderData(el) {
   const backup = await db.getBackupStatus();
@@ -370,7 +446,7 @@ async function renderData(el) {
       h('p', { class: 'a-note' }, backup.lastBackupAt
         ? `最終：${fmtDateTime(backup.lastBackupAt)}　以降の抽選 ${backup.drawsSince} 件`
         : `まだバックアップがありません（抽選 ${backup.drawsTotal} 件）`),
-      h('p', { class: 'a-note' }, '交代時・各日の終了時に書き出してください。学籍番号を含むので、イベント後に削除してください。'),
+      h('p', { class: 'a-note' }, '交代時・各日の終了時に書き出してください。学籍番号とアンケート回答（個人は特定されません）を含むので、イベント後に削除してください。'),
       h('div', { class: 'a-row' },
         btn('バックアップを書き出す（JSON）', backupFlow, 'primary', { 'data-testid': 'backup-export' }),
         btn('バックアップから復元', () => fileInput.click(), 'ghost', { 'data-testid': 'backup-restore' }),
@@ -417,10 +493,11 @@ async function backupFlow() {
 async function csvFlow(masked) {
   const [draws, cfg] = await Promise.all([db.listDraws(), db.getConfig()]);
   const dayName = (id) => cfg.days.find((d) => d.id === id)?.label || id;
-  const rows = [['抽選番号', '開催日', '抽選日時', '区分', '学籍番号', '賞の名称', '景品名', '確認日時']];
+  const rows = [['抽選番号', '開催日', '抽選日時', '区分', '学籍番号', '賞の名称', '景品名', '確認日時', '年齢', 'きっかけ']];
   for (const d of [...draws].reverse()) {
     rows.push([d.label, dayName(d.dayId), fmtDateTime(d.drawnAt), d.kind === 'student' ? '学生' : '一般',
-      d.kind === 'student' ? (masked ? maskId(d.studentId) : d.studentId) : '', d.categoryName, d.prizeName, d.confirmedAt ? fmtDateTime(d.confirmedAt) : '未確認']);
+      d.kind === 'student' ? (masked ? maskId(d.studentId) : d.studentId) : '', d.categoryName, d.prizeName, d.confirmedAt ? fmtDateTime(d.confirmedAt) : '未確認',
+      ...(d.kind === 'guest' ? [ageLabelOf(d), d.survey ? triggerLabelsOf(d).join('／') : UNANSWERED] : ['', ''])]);
   }
   const file = new File(['﻿' + toCsv(rows)], `yosoro-gacha-draws-${fileStamp()}.csv`, { type: 'text/csv' });
   await saveFile(file);

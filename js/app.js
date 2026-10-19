@@ -3,11 +3,13 @@
 import * as db from './db.js';
 import { sound } from './sound.js';
 import { createStage } from './stage.js';
-import { chooseScreen, studentScreen, infoScreen, jp } from './screens.js';
+import { chooseScreen, studentScreen, surveyAgeScreen, surveyTriggerScreen, infoScreen, jp } from './screens.js';
 import { dayText } from './poster.js';
 import { normalizeStudentId, validateStudentId, describeIdRule } from './lottery.js';
 import { h, longPress } from './util.js';
-import { LONG_PRESS_OK_MS, LONG_PRESS_ADMIN_MS, IDLE_RESET_MS } from './config.js';
+import {
+  LONG_PRESS_OK_MS, LONG_PRESS_ADMIN_MS, IDLE_RESET_MS, SURVEY_AGES, SURVEY_TRIGGERS, SURVEY_VERSION, SURVEY_ADVANCE_MS,
+} from './config.js';
 import * as admin from './admin.js';
 
 const params = new URLSearchParams(location.search);
@@ -20,9 +22,10 @@ const host = $('#screen-host');
 let stage = null;
 let introPlayed = false;   // 起動後の最初の待機画面だけ、タイトルの登場演出を付ける
 let config = null;
-let state = 'boot';        // boot | choose | student | wheel | drawing | result | closed | error | fatal
+let state = 'boot';        // boot | choose | student | survey-age | survey-trigger | wheel | drawing | result | closed | error | fatal
 let kind = null;           // 'student' | 'guest'（抽選前だけ保持）
 let studentId = null;      // 正規化済み。メモリ内のみ。URL/console/DOM属性には出さない
+let survey = null;         // 一般の方のアンケート回答 {age:id|null, triggers:[id]}。メモリ内のみ（抽選の保存まで何も書かない）
 let navToken = 0;          // 画面遷移ごとに増やし、古い非同期結果を無視する
 let drawing = false;       // 抽選開始ガード（1回だけ）
 let idleTimer = 0;
@@ -32,17 +35,20 @@ const safe = (fn) => { try { return fn(); } catch { /* 演出系の失敗で運�
 const play = (name) => safe(() => sound.play(name));
 
 // ---------- 画面遷移の共通処理 ----------
+// 入力途中で放置されたら待機へ戻す画面（アンケートを含む）
+const IDLE_STATES = new Set(['student', 'survey-age', 'survey-trigger', 'wheel']);
+
 function setState(next) {
   state = next;
   navToken++;
   clearTimeout(idleTimer);
-  if (next === 'student' || next === 'wheel') armIdle();
+  if (IDLE_STATES.has(next)) armIdle();
 }
 
 function armIdle() {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if (state === 'student' || state === 'wheel') showChoose();
+    if (IDLE_STATES.has(state)) showChoose();
   }, IDLE_RESET_MS);
 }
 
@@ -56,12 +62,12 @@ const setMsg = (el, ...parts) => el.replaceChildren(...jp(...parts));
 // ---------- 各画面 ----------
 function showChoose() {
   setState('choose');
-  kind = null; studentId = null; drawing = false;
+  kind = null; studentId = null; survey = null; drawing = false;
   safe(() => stage.setInteractive(false));
   mount(chooseScreen({
     intro: !introPlayed && !REDUCED,
     onStudent: () => { play('tap'); showStudent(); },
-    onGuest: () => { play('tap'); kind = 'guest'; showWheel(); },
+    onGuest: () => { play('tap'); kind = 'guest'; survey = { age: null, triggers: [] }; showSurveyAge(); },
   }));
   introPlayed = true;
 }
@@ -107,16 +113,63 @@ function showStudent(message = '') {
   mount(screen.el);
 }
 
+// 一般の方：Q1 年齢 → Q2 きっかけ → 舵輪。回答は survey（メモリ）に持ち、抽選の保存で初めて書く。
+function showSurveyAge() {
+  setState('survey-age');
+  safe(() => stage.setInteractive(false));
+  let timer = 0;
+  const token = navToken;
+  const { el } = surveyAgeScreen({
+    options: SURVEY_AGES,
+    selected: survey.age,
+    onSelect: (id) => {
+      if (state !== 'survey-age') return;
+      play('tap');
+      survey.age = id;
+      clearTimeout(timer);   // 「選んだ」と見せてから進む。選び直しは最後のタップが有効
+      timer = setTimeout(() => { if (state === 'survey-age' && token === navToken) showSurveyTrigger(); }, SURVEY_ADVANCE_MS);
+    },
+    onBack: () => { clearTimeout(timer); play('tap'); showChoose(); },
+  });
+  mount(el);
+}
+
+function showSurveyTrigger() {
+  setState('survey-trigger');
+  safe(() => stage.setInteractive(false));
+  const { el } = surveyTriggerScreen({
+    options: SURVEY_TRIGGERS,
+    selected: survey.triggers,
+    onChange: (ids) => { play('tap'); survey.triggers = ids; },
+    onNext: () => { if (survey.age && survey.triggers.length) { play('tap'); showWheel(); } },
+    onBack: () => { play('tap'); showSurveyAge(); },
+  });
+  mount(el);
+}
+
+/** 保存用の回答（選択肢の並び順に整える）。検証は db.draw が行う。 */
+const surveyPayload = () => ({
+  v: SURVEY_VERSION,
+  age: survey?.age ?? null,
+  triggers: SURVEY_TRIGGERS.map((t) => t.id).filter((id) => survey?.triggers.includes(id)),
+});
+
 function showWheel() {
   setState('wheel');
   drawing = false;
-  mount(stage.wheelScreen({ onBack: () => { if (state === 'wheel' && !drawing) { play('tap'); showChoose(); } } }));
+  mount(stage.wheelScreen({
+    onBack: () => {
+      if (state !== 'wheel' || drawing) return;
+      play('tap');
+      if (kind === 'guest') showSurveyTrigger(); else showChoose();   // 一般の方は答えを残したまま Q2 へ
+    },
+  }));
   safe(() => stage.setInteractive(true));
 }
 
 function showClosed() {
   setState('closed');
-  kind = null; studentId = null;
+  kind = null; studentId = null; survey = null;
   safe(() => stage.setInteractive(false));
   mount(infoScreen({
     name: 'closed', title: '本日の抽選は/終了しました', lead: 'たくさんの/ご参加/ありがとうございました！', tagged: true,
@@ -152,13 +205,14 @@ async function onTurn() {
   drawing = true;
   const myKind = kind;
   const myId = studentId;
+  const mySurvey = myKind === 'guest' ? surveyPayload() : undefined;
   setState('drawing');   // 舵輪の画面はそのまま。空転しながら保存の完了を待つ
   safe(() => stage.startSpin());
   let result;
   try {
-    result = await db.draw({ kind: myKind, studentId: myId }); // complete まで待つ
+    result = await db.draw({ kind: myKind, studentId: myId, survey: mySurvey }); // complete まで待つ
   } catch (e) {
-    studentId = null;
+    studentId = null; survey = null;
     safe(() => stage.abort());
     drawing = false;
     play('error');
@@ -168,7 +222,7 @@ async function onTurn() {
     if (code === 'PENDING_EXISTS') return refresh();
     return showError();
   }
-  studentId = null; // 保存後は学籍番号をメモリからも消す
+  studentId = null; survey = null; // 保存後は学籍番号・アンケート回答をメモリからも消す
   state = 'result';
   try {
     await stage.playReveal(toReveal(result));
@@ -289,7 +343,7 @@ async function main() {
   let unlocked = false;
   document.addEventListener('pointerdown', () => {
     if (!unlocked) { unlocked = true; safe(() => sound.unlock()); } // iOS: 最初のユーザー操作で音を解錠
-    if (state === 'student' || state === 'wheel') armIdle();
+    if (IDLE_STATES.has(state)) armIdle();
   }, { capture: true });
   stage = createStage($('#stage'), { sound, reducedMotion: REDUCED });
   stage.onTurn(onTurn);
