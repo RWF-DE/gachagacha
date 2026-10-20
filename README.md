@@ -1,4 +1,4 @@
-# YoSoro! お宝ガチャ（電波祭2026）
+# Yo Draw（電波祭2026 お宝ガチャ）
 
 電波祭の本部テントに置いた iPad 1台で、来場者が無料の景品抽選をするためのアプリです。
 **インターネットがなくても iPad の中だけで動きます**（静的 HTML/CSS/JS + Service Worker + IndexedDB の PWA）。

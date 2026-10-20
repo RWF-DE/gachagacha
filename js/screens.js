@@ -14,10 +14,11 @@ const arrow = () => '<svg class="ar" aria-hidden="true"><use href="#arrow"/></sv
 // ---------- 区分選択 ----------
 export function chooseScreen({ intro, onStudent, onGuest }) {
   const el = h('section', { class: `scr scr-choose ${intro ? 'intro' : 'quick'}`, 'data-testid': 'screen-choose' });
-  const letters = [...'YoSoro'].map((c) => `<span class="c"><span class="ci">${c}</span></span>`).join('');
-  el.innerHTML = `${metaHtml('お宝ガチャ — TREASURE DRAW')}
+  // 「Yo Draw」：語間は空白ではなく専用のスペーサー（inline-block 内の空白は潰れるため）
+  const letters = [...'Yo Draw'].map((c) => (c === ' ' ? '<span class="sp"></span>' : `<span class="c"><span class="ci">${c}</span></span>`)).join('');
+  el.innerHTML = `${metaHtml('YO DRAW — お宝ガチャ')}
     <div class="bigw">${wheelMark()}</div>
-    <h1 class="yo" aria-label="YoSoro!">${letters}<span class="c"><span class="ci bang">!</span></span></h1>
+    <h1 class="yo" aria-label="Yo Draw">${letters}</h1>
     <h2 class="takara">お宝ガチャ</h2>
     <p class="tag">おひとり1回・参加無料</p>
     <div class="rows"></div>`;
@@ -64,7 +65,7 @@ export function studentScreen({ rule, onSubmit, onBack }) {
       h('p', { class: 'note' }, jp('学籍番号は/参加済みの確認だけに/使います。')),
       h('button', { type: 'button', class: 'pbtn back', 'data-testid': 'back', onclick: onBack }, h('span', {}, '← 戻る'))),
     h('div', { class: 'st-right' }, keys));
-  el.insertAdjacentHTML('afterbegin', metaHtml('お宝ガチャ — TREASURE DRAW'));
+  el.insertAdjacentHTML('afterbegin', metaHtml('YO DRAW — お宝ガチャ'));
   return { el, msg };
 }
 
@@ -111,7 +112,7 @@ function surveyFrame({ name, stepNo, heading, body, foot }) {
       h('b', {}, 'SURVEY'), h('span', { class: 'stp' }, `アンケート ${stepNo}/2`),
       h('span', { class: 'bars', 'aria-hidden': 'true' }, h('i', { class: 'on' }), h('i', { class: stepNo === 2 ? 'on' : '' }))),
     heading, body, foot);
-  el.insertAdjacentHTML('afterbegin', metaHtml('お宝ガチャ — SURVEY'));
+  el.insertAdjacentHTML('afterbegin', metaHtml('YO DRAW — SURVEY'));
   return el;
 }
 
@@ -177,6 +178,6 @@ export function infoScreen({ name, tone = '', title, small = false, lead, tagged
       lead ? h('p', { class: `lead${tagged ? ' tagged' : ''}` }, jp(lead)) : null,
       actions.length ? h('div', { class: 'acts' }, actions.map((a) =>
         h('button', { type: 'button', class: `pbtn${a.solid ? ' solid' : ''}`, 'data-testid': a.testid, onclick: a.onClick }, h('span', {}, a.label)))) : null));
-  el.insertAdjacentHTML('afterbegin', `${metaHtml('お宝ガチャ — TREASURE DRAW')}<div class="bigw">${wheelMark()}</div>`);
+  el.insertAdjacentHTML('afterbegin', `${metaHtml('YO DRAW — お宝ガチャ')}<div class="bigw">${wheelMark()}</div>`);
   return el;
 }

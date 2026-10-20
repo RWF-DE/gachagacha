@@ -1,4 +1,4 @@
-/* YoSoro! お宝ガチャ — 効果音（Web Audio で合成。音声ファイルなし）
+/* Yo Draw（お宝ガチャ） — 効果音（Web Audio で合成。音声ファイルなし）
  * 契約: sound.unlock / setEnabled / setVolume / play(name)
  *   name: tap / tick / spin / wipe / slam / stab / fanfare-sponsor / fanfare-rare / fanfare-sticker / error（drop / shake / open は旧名）
  * AudioContext が使えない環境でも例外を投げない。 */
