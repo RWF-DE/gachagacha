@@ -48,10 +48,16 @@ export function dayText(config, dayId) {
 /**
  * 横 1180×820 / 縦 820×1180 を基準にして、画面に収まる最大の等倍で拡縮する。
  * 基準より細長い画面では論理サイズ（--W / --H）が基準より大きくなり、各要素は端に固定して広げる。
+ * 画面の大きさが前回と同じなら何も書かず、前回と同じ geo オブジェクトを返す（同じ値の再設定でも
+ * #stage 配下全体のスタイル再計算が走るため。演出の頭で呼ばれても無害にする）。
+ * 呼び出し側は「返り値が前回と同一か」で寸法の変化を判定してよい。
  */
+const fitMemo = new WeakMap();
 export function fitStage(stageEl) {
   const vw = document.documentElement.clientWidth || innerWidth;
   const vh = document.documentElement.clientHeight || innerHeight;
+  const memo = fitMemo.get(stageEl);
+  if (memo && memo.vw === vw && memo.vh === vh) return memo.geo;
   const portrait = vh > vw;
   const bw = portrait ? 820 : 1180;
   const bh = portrait ? 1180 : 820;
@@ -65,7 +71,9 @@ export function fitStage(stageEl) {
   st.setProperty('--ew', `${Math.max(0, W - bw)}px`);
   st.transform = `scale(${s})`;
   stageEl.dataset.o = portrait ? 'p' : 'l';
-  return { W, H, s, portrait };
+  const geo = { W, H, s, portrait };
+  fitMemo.set(stageEl, { vw, vh, geo });
+  return geo;
 }
 
 // ---------- 紙の粒子（静止タイル1枚。アニメーション・ブレンドなし） ----------

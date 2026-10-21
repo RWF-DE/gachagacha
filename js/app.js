@@ -340,9 +340,9 @@ function registerSW() {
 async function main() {
   hardenIpad();
   registerSW();
-  let unlocked = false;
+  // 音の解錠は sound.js が自分でやる（pointerup / touchend / click / keydown の中で AudioContext を作って resume）。
+  // iPad のタッチでは pointerdown は音声の解錠にならないので、ここでは待機リセット用の操作検知だけを行う。
   document.addEventListener('pointerdown', () => {
-    if (!unlocked) { unlocked = true; safe(() => sound.unlock()); } // iOS: 最初のユーザー操作で音を解錠
     if (IDLE_STATES.has(state)) armIdle();
   }, { capture: true });
   stage = createStage($('#stage'), { sound, reducedMotion: REDUCED });

@@ -8,12 +8,18 @@
 //   stage.startSpin()                             保存待ちの間の空転を開始（入力の直後に呼ぶ）
 //   stage.abort()                                 保存失敗：空転を止める
 //   stage.playReveal(r): Promise                  保存完了「後」に呼ぶ。スタッフのボタンが出る瞬間に resolve
+//                                                 （#stage.playing は外さない。レイヤーを演出の間ずっと保つため。外すのは reset() だけ）
 //   stage.showResultStatic(r)                     復旧用：演出なしで結果を表示
 //   stage.resultActionsEl                         結果カード内の操作スロット（スタッフOKボタンを入れる）
 //   stage.reset(): Promise                        結果を閉じて待機の紙へ
 //   stage.setDay(text)                            ヘッダの開催日表示（飾り）
 //   r = { tier:'sponsor'|'rare'|'sticker', categoryName, prizeName, label }
 // ?fast=1 / prefers-reduced-motion では 1 秒未満の単純なフェードにする。
+//
+// WebKit（iPad Safari）向けの約束（docs/DESIGN.md §10）:
+//   - 空転は Web Animations API（コンポジタ）で回す。メインスレッドが詰まっても止まらない。rAF では回さない。
+//   - 効果音は sound.play(name, delayMs, group) でオーディオクロックに予約する（setTimeout で鳴らさない）。
+//   - 演出の間レイヤーを作り直さない（css/poster.css の will-change 一覧）。.playing は reset() まで残す。
 import {
   DEFS, wheelMark, metaHtml, splitChars, esc, fitStage, installGrain, drawHalftone, splitPhrases, fontsReady,
 } from './poster.js';
@@ -58,8 +64,8 @@ const RESULT_HTML = `
     <div class="dno" id="num"><small>DRAW</small><b></b></div>
     <div class="rule"></div>
     <div class="plabel"><b>PRIZE</b><span>お宝 / 景品</span></div>
-    <div class="prize" id="prize"></div>
-    <div class="panel"><small>SHOW THIS SCREEN TO STAFF</small><p><span>この画面のまま</span><span>スタッフにお見せください</span></p></div>
+    <div class="pwin" id="prizewin"><div class="prize" id="prize"></div></div>
+    <div class="panel"><div class="pin"><small>SHOW THIS SCREEN TO STAFF</small><p><span>この画面のまま</span><span>スタッフにお見せください</span></p></div></div>
     <div class="stamp" id="stamp"><div class="disc"></div><div class="ringl"></div><span class="s1">抽選番号</span><b class="s2" id="lotno"></b><span class="s3">DENPASAI 2026</span></div>
     <div class="staff" id="staffslot"></div>
   </div>
@@ -73,9 +79,27 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   if (fast) stageEl.classList.add('fast');
 
   const $ = (sel) => stageEl.querySelector(sel);
-  const snd = (name) => { try { sound?.play(name); } catch { /* 音の失敗で進行を止めない */ } };
+  // 効果音。遅延つきの予約 sound.play(name, delayMs, group) はオーディオクロックに載るので、メインスレッドが詰まってもずれない。
+  // group は sound.cancelScheduled(group) でまとめて取り消す（'spin' = 空転の刻み音 / 'reveal' = 演出の音）。
+  // cancelScheduled を持たない旧い sound.js では、同じ契約を setTimeout で代用する。
+  const hasClock = typeof sound?.cancelScheduled === 'function';
+  const soundTimers = new Map();
+  const snd = (name, delay = 0, group = 'default') => {
+    try {
+      if (!delay || hasClock) { sound?.play(name, delay, group); return; }
+      let set = soundTimers.get(group);
+      if (!set) soundTimers.set(group, (set = new Set()));
+      const id = setTimeout(() => { set.delete(id); try { sound?.play(name); } catch { /* 音の失敗で進行を止めない */ } }, delay);
+      set.add(id);
+    } catch { /* 音の失敗で進行を止めない */ }
+  };
+  const cancelSnd = (group) => {
+    try { sound?.cancelScheduled?.(group); } catch { /* noop */ }
+    const set = soundTimers.get(group);
+    if (set) { set.forEach(clearTimeout); set.clear(); }
+  };
   const perf = createPerf();   // ?perf=1 のときだけ（実機のカクつき確認用）
-  const catEl = $('#cat'); const prizeEl = $('#prize'); const ruleEl = $('#result .rule'); const plabelEl = $('#result .plabel');
+  const catEl = $('#cat'); const prizeEl = $('#prize'); const prizeWinEl = $('#prizewin'); const ruleEl = $('#result .rule'); const plabelEl = $('#result .plabel');
   const numEl = $('#num'); const htEl = $('#ht'); const staffEl = $('#staffslot'); const bigEl = $('#bigcat'); const cardEl = $('#card');
 
   let geo = fitStage(stageEl);
@@ -97,7 +121,8 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
 
   // ---------- 拡縮 ----------
-  const relayout = () => { geo = fitStage(stageEl); if (cur) layoutResult(); };
+  // 画面の大きさが変わっていなければ fitStage は同じ geo を返す（何も書かない）。その場合は測り直しもしない。
+  const relayout = () => { const g = fitStage(stageEl); if (g !== geo) { geo = g; if (cur) layoutResult(); } };
   addEventListener('resize', relayout);
   addEventListener('orientationchange', () => setTimeout(relayout, 120));
 
@@ -233,7 +258,26 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   }
   function setInteractive(on) { interactive = !!on; applyInteractive(); }
 
-  // ---------- 空転（保存待ち〜シャッターが覆うまで。rAF はこの間だけ） ----------
+  // ---------- 空転（保存待ち〜シャッターが覆うまで） ----------
+  // 回転は Web Animations API（コンポジタ駆動）。演出の頭はメインスレッドが重い（結果の組み立て・スタイル再計算・描画）ので、
+  // rAF で回していると舵輪がちょうど引き始めに固まって見える。コンポジタに任せればメインスレッドが詰まっても止まらない。
+  // 速度は「現在の角速度（上限 500°/s）から 2000°/s² で加速 → 900°/s で一定」。加速区間は等加速度なので
+  // 角度が時間の2乗になる＝ cubic-bezier(1/3, a/3, 2/3, (1+a)/3) で厳密に表せる（a = w0·ta / θ1）。巡航区間は線形。
+  // 刻み音（45° ごと）は同じ速度の式から交差時刻を逆算し、先にオーディオクロックへ予約する。
+  const SPIN_V = 900;              // 巡航速度 °/s
+  const SPIN_ACC = 2000;           // 加速 °/s²
+  const SPIN_CRUISE_MS = 120000;   // 巡航区間の長さ（保存がこれより長引くことはない。超えたらそこで止まる）
+  const SPIN_TICK_DEG = 45;        // 刻み音の間隔（°）
+  const SPIN_TICK_AHEAD_MS = 3000; // 刻み音を先に予約しておく長さ（保存が長引いたら継ぎ足す）
+
+  // 空転の速度の式（向きなし）。w0: 初速 °/s, ta: 加速に要する時間 s, th1: 加速区間で回る角度 °
+  function spinProfile(w0) {
+    const ta = (SPIN_V - w0) / SPIN_ACC;
+    return { w0, ta, th1: w0 * ta + (SPIN_ACC * ta * ta) / 2 };
+  }
+  const spinDeg = (P, t) => (t <= P.ta ? P.w0 * t + (SPIN_ACC * t * t) / 2 : P.th1 + SPIN_V * (t - P.ta));   // 時刻 t(s) までに回った角度
+  const spinAt = (P, deg) => (deg <= P.th1 ? (Math.sqrt(P.w0 * P.w0 + 2 * SPIN_ACC * deg) - P.w0) / SPIN_ACC : P.ta + (deg - P.th1) / SPIN_V);   // 角度 deg に達する時刻 (s)
+
   function startSpin() {
     stopSpin();
     if (!wheel) return;
@@ -243,30 +287,55 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     w.net = dir * THRESHOLD_DEG;
     w.render();
     snd('spin');
-    const t0 = performance.now();
-    const w0 = Math.min(500, Math.abs(w.v || 0));
-    spin = { last: t0, tick: 0, raf: 0 };
-    const loop = (t) => {
-      if (!spin) return;
-      const dt = Math.min(0.05, (t - spin.last) / 1000);
-      spin.last = t;
-      const speed = Math.min(900, w0 + 2000 * ((t - t0) / 1000));
-      const d = speed * dt * dir;
-      w.angle += d;
-      w.svg.style.transform = `rotate(${w.angle}deg)`;
-      spin.tick += Math.abs(d);
-      while (spin.tick >= 45) { spin.tick -= 45; snd('tick'); }
-      spin.raf = requestAnimationFrame(loop);
-    };
-    spin.raf = requestAnimationFrame(loop);
+    const P = spinProfile(Math.min(500, Math.abs(w.v || 0)));
+    const s = { w, dir, P, a0: w.angle, t0: performance.now(), dur: P.ta * 1000 + SPIN_CRUISE_MS, anim: null, ticked: 0, topUp: 0 };
+    spin = s;
+    try {
+      const a = P.w0 / (P.w0 + (SPIN_ACC * P.ta) / 2);   // 加速区間の角度 = θ1·(a·u + (1−a)·u²), u = 区間内の進み具合 0..1
+      const rot = (deg) => `rotate(${(s.a0 + dir * deg).toFixed(3)}deg)`;
+      s.anim = w.svg.animate([
+        { offset: 0, transform: rot(0), easing: `cubic-bezier(0.33333, ${(a / 3).toFixed(5)}, 0.66667, ${((1 + a) / 3).toFixed(5)})` },
+        { offset: (P.ta * 1000) / s.dur, transform: rot(P.th1), easing: 'linear' },
+        { offset: 1, transform: rot(P.th1 + (SPIN_V * SPIN_CRUISE_MS) / 1000) },
+      ], { duration: s.dur, fill: 'forwards', easing: 'linear' });
+      s.anim.id = 'spin';
+    } catch { s.anim = null; /* WAAPI が使えない環境では回らないだけ（演出は進む） */ }
+    // 刻み音の予約（60 個ほどの音源づくり）は次のタスクへ回す。app.js はこの直後に db.draw を始めるので、その開始を遅らせない
+    s.topUp = setTimeout(() => scheduleSpinTicks(0), 0);
+  }
+  // 刻み音を [fromMs, fromMs + SPIN_TICK_AHEAD_MS) の範囲で予約する（時刻は空転の開始から）。保存が長引いたときは継ぎ足す。
+  function scheduleSpinTicks(fromMs) {
+    const s = spin;
+    if (!s) return;
+    const toMs = fromMs + SPIN_TICK_AHEAD_MS;
+    const elapsed = performance.now() - s.t0;
+    for (let n = 0; n < 400; n++) {   // 念のための上限（通常は 3 秒で 60 個ほど）
+      const at = spinAt(s.P, (s.ticked + 1) * SPIN_TICK_DEG) * 1000;
+      if (!(at < toMs)) break;
+      snd('tick', Math.max(0, Math.round(at - elapsed)), 'spin');
+      s.ticked++;
+    }
+    s.topUp = setTimeout(() => scheduleSpinTicks(toMs), SPIN_TICK_AHEAD_MS - 500);
   }
   function stopSpin() {
-    if (spin) cancelAnimationFrame(spin.raf);
+    const s = spin;
     spin = null;
+    if (!s) return;
+    clearTimeout(s.topUp);
+    cancelSnd('spin');
+    if (!s.anim) return;
+    try {
+      // 止めた位置で固定する（cancel() だけだと空転を始めた角度へ戻ってしまう。abort では舵輪が見えている）
+      const t = Math.min(Number(s.anim.currentTime) || 0, s.dur) / 1000;
+      s.w.angle = (s.a0 + s.dir * spinDeg(s.P, t)) % 360;
+      s.w.svg.style.transform = `rotate(${s.w.angle}deg)`;
+      s.anim.cancel();
+    } catch { /* noop */ }
   }
   function abort() {
     clearTimers();
     stopSpin();
+    cancelSnd('reveal');
     perf?.cancel();
     if (wheel) { wheel.fired = false; wheel.net = 0; wheel.render?.(); }
   }
@@ -381,7 +450,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     const prizeTop = ruleTop + 58;
     const panelTop = H - (P ? 150 + 200 : 130 + 210);
     // 景品名（1行に収める。収まらなければ縮め、それでも小さすぎれば文節で折り返す）
-    prizeEl.style.top = `${prizeTop}px`;
+    prizeWinEl.style.top = `${prizeTop}px`;
     fitPrize(cur.prizeName, T.prize[k], W - 80, Math.max(90, panelTop - prizeTop - 24), P ? 58 : 66);
     // 縦置きは余白が大きいので、見出し〜景品名のかたまりを上下の余白の中ほどに寄せる
     let dy = 0;
@@ -392,7 +461,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     catEl.style.top = `${catTop + dy}px`;
     ruleEl.style.top = `${ruleTop + dy}px`;
     plabelEl.style.top = `${ruleTop + 28 + dy}px`;
-    prizeEl.style.top = `${prizeTop + dy}px`;
+    prizeWinEl.style.top = `${prizeTop + dy}px`;
     if (!P) {
       numEl.style.top = `${ruleTop - 122}px`;
       htEl.style.height = `${Math.max(60, Math.min(168, ruleTop - 12 - 78))}px`;
@@ -422,16 +491,18 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   // ---------- 演出 ----------
   async function playReveal(raw) {
     clearTimers();
+    cancelSnd('reveal');
     const r = norm(raw);
     const TL = TIMELINE[r.tier];
     stageEl.classList.remove('playing', 'leaving');
     cur = r;
     // 保存完了の瞬間に重い仕事（DOM の組み立て→スタイル→レイアウト→測定）を1フレームに固めると、空転中の舵輪が止まって見える。
     // 1) 結果面を作る（まだ見せない）→ 1フレーム挟んでスタイル/レイアウトを済ませる → 2) 測定して見せる＋演出開始、の2段にする。
+    // （空転はコンポジタで回っているので、ここでメインスレッドが重くても止まらない）
     if (fast) stageEl.dataset.screen = 'seq'; else stageEl.classList.add('warm');
     buildResult(r);
     await Promise.all([fontsReady(1000), fast ? null : nextFrame()]);
-    geo = fitStage(stageEl);
+    geo = fitStage(stageEl);   // 画面の大きさが同じなら何も書かない
     layoutResult();
     stageEl.dataset.screen = 'seq';
     void stageEl.offsetWidth;
@@ -443,15 +514,17 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
       later(40, stopSpin);
       later(480, finish);
     } else {
-      TL.shutter.forEach((t) => later(t, () => snd('wipe')));
-      later(TL.cv + 30, stopSpin);
+      // 効果音は .playing を付けたこの瞬間に、全部まとめてオーディオクロックへ予約する（時刻は演出の 0ms から）。
+      // setTimeout で鳴らすとメインスレッドの遅れ（スタイル再計算・描画）の分だけ画とずれる。
+      TL.shutter.forEach((t) => snd('wipe', t, 'reveal'));
       if (r.tier === 'sponsor') {
-        later(TL.cv + 120, () => snd('slam'));
-        later(TL.cv + 120 + 3 * 80, () => snd('slam'));
-        later(TL.cardOut, () => snd('wipe'));
+        snd('slam', TL.cv + 120, 'reveal');
+        snd('slam', TL.cv + 120 + 3 * 80, 'reveal');
+        snd('wipe', TL.cardOut, 'reveal');
       }
-      later(TL.r0 + TL.cat, () => snd(TIERS[r.tier].sound));
-      later(TL.r0 + TL.stamp + 150, () => snd('slam'));
+      snd(TIERS[r.tier].sound, TL.r0 + TL.cat, 'reveal');
+      snd('slam', TL.r0 + TL.stamp + 150, 'reveal');
+      later(TL.cv + 30, stopSpin);
       const onEnd = (e) => { if (e.target === staffEl && e.animationName === 'tick') finish(); };
       staffEl.addEventListener('animationend', onEnd);
       later(TL.r0 + TL.staff + STAFF_DUR + 500, finish);
@@ -461,13 +534,15 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     clearTimers();
     stopSpin();
     perf?.stop(r.tier);
+    // スタッフのボタンが出る。ここで #stage.playing を外さない：外すと動かしていたレイヤー（will-change）が一斉に消えて、
+    // 巨大な文字ごと再描画になる。.playing の最終状態（アニメーションの終端値）は静止表示と同じ見た目なので、reset() まで残す。
     stageEl.dataset.screen = 'result';
-    stageEl.classList.remove('playing');
   }
 
   function showResultStatic(raw) {
     clearTimers();
     stopSpin();
+    cancelSnd('reveal');
     const r = norm(raw);
     cur = r;
     stageEl.classList.remove('playing', 'leaving');
@@ -480,6 +555,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   async function reset() {
     clearTimers();
     stopSpin();
+    cancelSnd('reveal');
     if (cur && !fast) {
       stageEl.classList.add('leaving');
       await new Promise((res) => setTimeout(res, 330));

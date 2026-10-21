@@ -132,9 +132,9 @@ js/config.js, lottery.js, db.js  … 既定設定・純粋関数・IndexedDB（�
 js/app.js                … 画面状態機械・抽選フロー（保存→演出）・スタッフOK・起動復旧・アイドル復帰
 js/screens.js            … 区分選択／学籍番号／アンケート（Q1・Q2）／情報画面（終了・エラー・読込失敗）の組み立て
 js/survey.js             … アンケートの検証・正規化（ラベルのスナップショット）・集計（純粋関数。DB・DOMに触れない）
-js/stage.js              … 舵輪の画面・空転・演出（シャッター／タイトルカード）・結果カード・拡縮
-js/poster.js             … 舵輪SVG・ヘッダ帯・拡縮（fitStage）・紙の粒子・ハーフトーン(canvas)・文字の割り付け
-js/perf.js               … ?perf=1 のときだけ出る rAF 間隔の計測表示（実機のカクつき確認用）
+js/stage.js              … 舵輪の画面・空転（Web Animations＝コンポジタ駆動）・演出（シャッター／タイトルカード）・結果カード・拡縮
+js/poster.js             … 舵輪SVG・ヘッダ帯・拡縮（fitStage。画面の大きさが変わらなければ何も書かない）・紙の粒子・ハーフトーン(canvas)・文字の割り付け
+js/perf.js               … ?perf=1 のときだけ出る rAF 間隔の計測表示（実機のカクつき確認用。測るのは主スレッドのフレームだけ。空転はコンポジタなので含まれない）
 js/sound.js              … 効果音（Web Audio 合成）
 js/admin.js, ui.js, util.js … スタッフ画面・共通UI・ユーティリティ
 sw.js, manifest.webmanifest, icons/*
@@ -149,17 +149,18 @@ const stage = createStage(document.getElementById('stage'), { sound, reducedMoti
 stage.wheelScreen({ onBack }): HTMLElement   // 舵輪の画面（data-testid screen-wheel / spin-button / wheel / back）。app.js が #screen-host に入れる
 stage.onTurn(cb)          // 回した（累積180°・タップ・ボタン・Enter/Space）と判定したら1回だけ。直前に自身を setInteractive(false)
 stage.setInteractive(on)
-stage.startSpin()         // 入力の直後：保存完了を待つあいだ舵輪を空転
-stage.abort()             // 保存失敗：空転停止（景品は出さない）
-stage.playReveal(r)       // 保存完了「後」に呼ぶ。スタッフのボタンが出る瞬間に resolve
+stage.startSpin()         // 入力の直後：保存完了を待つあいだ舵輪を空転（WAAPI でコンポジタに任せる。刻み音は先にオーディオクロックへ予約）
+stage.abort()             // 保存失敗：空転停止（止めた角度で固定・予約した音を取り消す。景品は出さない）
+stage.playReveal(r)       // 保存完了「後」に呼ぶ。スタッフのボタンが出る瞬間に resolve（resolve 後も #stage.playing は残る。外すのは reset() だけ）
 stage.showResultStatic(r) // 起動時の復旧：演出なしで結果を表示
 stage.resultActionsEl     // 結果カード内の操作スロット（app.js がスタッフOKボタンを入れる）
-stage.reset()             // 結果を畳んで待機の紙へ
+stage.reset()             // 結果を畳んで待機の紙へ（退場が済んでから #stage.playing を外す）
 stage.setDay(text)        // ヘッダの開催日（飾り。残数・確率は出さない）
 // r = { tier:'sponsor'|'rare'|'sticker', categoryName, prizeName, label }
 ```
 
 - stage は抽選ロジック・DBに一切触れない。app.js は演出の DOM に触らない（`resultActionsEl` と、画面ホスト `#screen-host` への画面の出し入れを除く）。
+- 音：stage は `sound.play(name, delayMs, group)` と `sound.cancelScheduled(group)` を呼ぶ（group：`spin`＝空転の刻み音、`reveal`＝演出の音、既定 `default`）。`cancelScheduled` を持たない旧い sound.js では同じ契約を `setTimeout` で代用する。
 - 賞の名称・景品名は draw のスナップショット（スタッフが編集できる）をそのまま使う。コードに名称を埋め込まない。
 - E2E 用フック（data-testid）：`screen-choose|student|survey-age|survey-trigger|wheel|closed|error|fatal`, `choose-student|guest`, `age-<id>`, `trigger-<id>`, `survey-next`, `survey-notice`, `survey-step`, `tenkey-*`, `student-error`, `spin-button`, `wheel`, `back`, `result-card`, `ok-button`, `error-back`, `logo`, `pin-*`, スタッフ画面の各 testid。
 
@@ -180,11 +181,17 @@ stage.setDay(text)        // ヘッダの開催日（飾り。残数・確率は
   - 結果の登場：ヘッダ → 賞の名称（1文字ずつスラム）→ 罫線 → 景品名 → 「この画面のまま…」→ 抽選番号のスタンプ（揺れ）→ スタッフのボタン。
 - 賞に順位をつけない：Latin ラベルは非序数（`SPONSOR AWARD`／`RARE STICKER`／`STICKER`）。ステッカー賞の右肩は抽選の連番（`DRAW 0044`）で、賞の序列ではない。
 - 景品名は 1 行に収まるよう自動で縮小し、小さくなりすぎるときだけ文節の切れ目で折り返す（`splitPhrases`）。タイトルカードも賞の名称の長さに合わせて行分け・縮小する。
-- 性能（iPad Safari。実機で「カクつく」と報告があり、以下を守る）：
-  - **動かすのは transform / opacity / visibility のみ。clip-path・filter・box-shadow・mix-blend-mode・width/height/top/left は動かさない。** Safari は clip-path のアニメーションをコンポジタで動かせず、毎フレーム巨大な文字（Dela）ごと再描画になる。ワイプは「背景色のカバー（`::after`、または `.cv`）を `scaleX(1→0)` / `scaleY(1→0)` で外す」で表す（結果面は `--bg` 色。終端は scale 0 なので見た目は clip-path と同じ）。退場も同じ（`#result::after` が `scaleX(0→1)`）。要素の下に動く別要素（舵輪など）がある場所へのカバーは避ける。
-  - **重いものは動かす前に描いておく（pre-warm）。** 結果面は演出の序盤（200 ms 時点。結果面とタイトルカードを同じフレームにまとめる）から `opacity: .001` で「描画だけ」しておき、`cv` で opacity 1。初めて見える瞬間に巨大な文字（タイトルカード約 340px・賞の名称・景品名）をラスタライズさせない。大きな文字のレイヤー（`#card .chi`・`#result .cat .chi`）の `will-change: transform` は `#stage.playing` の間だけ。常時付けない（メモリ）。
-  - **レイアウトは来場者が回す前に済ませる。** 舵輪の画面が出て 0.7 秒後に `#stage.warm` を付け、結果面・シャッター・タイトルカードを `display:block` + 不可視にしてレイアウトしておく（`stage.js scheduleWarm`）。演出の頭では文字を差し替えて測り直すだけ。測定（`offsetWidth` など）は `layoutResult` に集約し、演出中（`playing`）は DOM を読み書きしない。
+- 性能（iPad Safari。実機で「カクつく」「もたつく」と報告があり、以下を守る）：
+  - **動かすのは transform / opacity のみ。clip-path・filter・box-shadow・mix-blend-mode・width/height/top/left は動かさない。** Safari は clip-path のアニメーションをコンポジタで動かせず、毎フレーム巨大な文字（Dela）ごと再描画になる。ワイプは「背景色のカバー（`::after`、または `.cv`）を `scaleX(1→0)` / `scaleY(1→0)` で外す」で表す（結果面は `--bg` 色。終端は scale 0 なので見た目は clip-path と同じ）。退場も同じ（`#result::after` が `scaleX(0→1)`）。
+  - **カバーは舵輪マーク（背面）に重なる要素には使わない。** カバーはその要素の「前」＝舵輪の前に描かれるので、まだ出ていない要素の形に舵輪が欠けて見える（縦置きのパネル、横置きの協賛特別賞の景品名と舵輪の上の軸）。景品名（`.pwin` > `.prize`）とパネル（`.panel` > `.pin`）は **「覗き窓」** で出す：窓（`overflow:hidden`）を動かしつつ中身を逆向きに同じ量だけ動かすと、中身は止まったまま窓の縁で少しずつ現れる（transform のみ・clip-path なし）。窓の動く量と時刻・イージングは従来のカバーと同じ（縁の位置が一致）。窓は演出中（`#stage.playing`）だけ `overflow:hidden`、静止状態では何もしない（見た目は完全に同じ）。
+  - **見える層の出し入れに `visibility` を使わない。** シャッターの列・タイトルカード・カードの小さな文字を消すには 1ms の opacity アニメーション（`off`）を使う。`visibility` の切り替えはコンポジタで動かせず、主スレッドの再描画とレイヤーの作り直しを起こす（Chromium（headless・ソフトウェア合成）では、シャッターの列などの 1ms の `visibility` アニメーションが実時間では画面に反映されず、列が居座って協賛特別賞・レアステッカー賞の結果面が演出の間ずっと出なかった。opacity に替えて解消）。`visibility` が残るのは、見えない層の準備の合図（結果面・タイトルカードの 200 ms の `vis`）と、シャッターが全面を覆っている間に隠す舵輪の画面（`.scr-wheel`）だけ。`steps()` も使わない（WebKit はコンポジタで動かせないことがある。`shake` は複製した線形キーフレームで同じ刻みを表す）。
+  - **空転はコンポジタで回す。** `stage.startSpin` は rAF ではなく Web Animations API（`wheel.animate`）：現在の角度・角速度（上限 500°/s）から 2000°/s² で加速し 900°/s で一定（加速区間は cubic-bezier で厳密に表せる）。演出の頭は主スレッドが重い（結果の組み立て・スタイル再計算・描画）が、コンポジタ駆動なので舵輪は固まらない。`stopSpin` / `abort` は止めた角度で固定してから cancel する。刻み音（45° ごと）は同じ速度の式から時刻を逆算し、先頭 3 秒分を `sound.play('tick', delayMs, 'spin')` で先に予約する（保存が長引いたら継ぎ足し、止めるときに `cancelScheduled('spin')`）。
+  - **演出の間、レイヤーを作り直さない。** `#stage.playing` は `playReveal` の終わりでは外さない（`reset()` の退場が済んでから外す）。外すと動かしていたレイヤーが一斉に消え、スタッフのボタンが出る瞬間に巨大な文字ごと再描画になる。アニメーションの終端値は静止表示と同じ見た目なので残してよい（違いは、レイヤーに描かれた文字の縁のアンチエイリアスが 1px 違うだけ。`showResultStatic` は `.playing` なしの静止表示で、従来と画素まで同じ）。演出中に動く要素はすべて `will-change`（一覧は css/poster.css「レイヤーの安定化」）を `#stage.playing` の間ずっと付け、t=0（空転がコンポジタで回っている間）にレイヤーを一度だけ作る。大きな静止要素には付けない。不透明度だけ動かす大きな要素には `transform` を付ける（`opacity` を付けると Chromium は終わったあとも画面大のレンダーサーフェスを作り続ける）。舵輪の入れ物 `.wmw` にも付ける（回る舵輪の前に結果の中身が重なる構図で、付けないとコンポジタの重なり処理が毎フレーム重くなる）。`#result` が触れない（`pointer-events:none`・不可視）のは準備中（`data-screen=seq`）だけ。結果（`data-screen=result`）では `.playing` が残っていても触れる（OKボタンが押せる）。
+  - **動くラッパーには明示的な z-index を付ける。** アニメーションが効いている間（`fill: both` / `forwards` の終端値も含む）、`transform` / `opacity` を動かす要素はスタッキングコンテキストになる。`#result .inner-shake`（shake のラッパー）に z-index が無いと、演出の間は中身（スタンプ・パネル・景品名）が舵輪マーク（`.wmw`: z-index 1）の下に描かれ、`.playing` が外れた瞬間に上へ跳ねた（実機で「スタンプが舵輪の下に出て、あとで上に跳ねる」と報告）。いまは `.inner-shake` が z-index 2 で、演出のどの時刻でも静止表示と同じ描画順。`will-change` も新しいスタッキングコンテキストを作るので、付ける要素は「すでに z-index 付きの位置指定」「子を持たない葉」「兄弟と描画順が入れ替わらないもの」に限る。**確認：** 凍結したフレームで、舵輪と重なる点の `document.elementsFromPoint` の順序が最終の静止表示と同じこと（スタンプの中心が舵輪でなくスタンプに当たること）を各系統・縦横で調べる。
+  - **効果音はオーディオクロックに予約する。** `playReveal` は `.playing` を付けた瞬間に、演出の音をすべて `sound.play(name, delayMs, 'reveal')` で予約する（`setTimeout` で鳴らすと主スレッドの遅れの分だけ画とずれる）。`abort` / `reset` / `showResultStatic` で `cancelScheduled('reveal')`。
+  - **重いものは動かす前に描いておく（pre-warm）。** 結果面は演出の序盤（200 ms 時点。結果面とタイトルカードを同じフレームにまとめる）から `opacity: .001` で「描画だけ」しておき、`cv` で opacity 1。初めて見える瞬間に巨大な文字（タイトルカード約 340px・賞の名称・景品名）をラスタライズさせない。
+  - **レイアウトは来場者が回す前に済ませる。** 舵輪の画面が出て 0.7 秒後に `#stage.warm` を付け、結果面・シャッター・タイトルカードを `display:block` + 不可視にしてレイアウトしておく（`stage.js scheduleWarm`）。演出の頭では文字を差し替えて測り直すだけ。測定（`offsetWidth` など）は `layoutResult` に集約し、演出中（`playing`）は DOM を読み書きしない。`fitStage` は画面の大きさが前回と同じなら何も書かず（CSS 変数・transform の再設定でも #stage 配下全体のスタイル再計算が走る）、`resize` でも寸法が変わらなければ測り直さない。
   - **ハーフトーンは canvas に1回だけ描く**（枠の大きさ×解像度ごとにキャッシュ、解像度は最大 3 倍）。SVG の円を数百個ラスタライズし直さない。
-  - 効果音のノイズバッファは `unlock` 時に1回だけ作る（`sound.js ensure`）。紙の粒子は静止タイル1枚（ブレンドなし）。アイドル中は rAF を回さない（空転中だけ）。
-  - 変更後は `?perf=1` で実機の rAF 間隔を確認する（右上に `frames: N, >33ms: K, max: X ms`）。目安は 1 回の演出で >33ms が 0〜2 回、max が 50 ms 未満。
+  - 効果音のノイズバッファは `unlock` 時に1回だけ作る（`sound.js ensure`）。紙の粒子は静止タイル1枚（ブレンドなし）。rAF は回さない（空転はコンポジタ。`?perf=1` の計測だけが rAF を使う）。
+  - 変更後は `?perf=1` で実機の rAF 間隔を確認する（右上に `frames: N, >33ms: K, max: X ms`）。目安は 1 回の演出で >33ms が 0〜2 回、max が 50 ms 未満。主スレッドのフレームだけを測るので、空転の滑らかさ（コンポジタ）は目で確認する（主スレッドを 300ms 止めても舵輪が回り続けること）。
 - 管理用情報（残数・確率）はプレイヤー画面に出さない。

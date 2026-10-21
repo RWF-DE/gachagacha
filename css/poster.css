@@ -1,6 +1,8 @@
 /* Yo Draw（お宝ガチャ） — プレイヤー画面（ポスター）
    基準 横1180×820 / 縦820×1180（[data-o=p]）。--W --H --ex は js/poster.js の fitStage が設定。
-   動かすのは transform / opacity / visibility だけ（clip-path は動かさない：Safari ではコンポジタで動かず毎フレーム再描画になる）。
+   動かすのは transform / opacity だけ（clip-path は動かさない：Safari ではコンポジタで動かず毎フレーム再描画になる）。
+   visibility は目に見える層では動かさない（見える層の切り替えは 1ms の opacity で。visibility の切り替えはレイヤーの作り直しと再描画を起こす）。
+   steps() も使わない（WebKit はコンポジタで動かせないことがある。複製した線形キーフレームで表す）。
    ワイプは「背景色のカバーを scale で外す」で表す（DESIGN.md §10 性能）。 */
 
 #stage {
@@ -341,14 +343,18 @@
 #shut { z-index: 3; pointer-events: none; }
 #shut .g { position: absolute; inset: 0; display: flex; }
 #shut .g i { flex: 1; display: block; height: 100%; }
-#shut .sweep { position: absolute; inset: 0; background: var(--blue); visibility: hidden; }
+#shut .sweep { position: absolute; inset: 0; background: var(--blue); transform: translateX(-101%); }   /* 画面の左外で待機（visibility で隠さない） */
 
 /* ================= 結果（result） ================= */
 #result { z-index: 2; color: var(--fg); }
 #result .bgf { position: absolute; inset: 0; background: var(--bg); }
 #result .wmw { position: absolute; right: -150px; bottom: -212px; width: 640px; height: 640px; z-index: 1; }
 #result .wmw .wm { width: 100%; height: 100%; --wc: var(--wheel); --hl: var(--wheel); }
-#result .inner-shake { position: absolute; inset: 0; }
+/* 中身（賞の名称・景品名・パネル・スタンプ・スタッフ枠）を包む。z-index を明示して、常に舵輪マーク（.wmw: z-index 1）より前にする。
+   z-index が auto だと、shake のアニメーションが効いている間（fill の終端値も含む）だけ transform でスタッキングコンテキストになり、
+   中身ぜんぶが舵輪の下に描かれ、アニメーションが外れた瞬間に上へ跳ねていた（スタンプが舵輪の下に出て、あとで上に跳ねる）。
+   明示すれば、演出のどの時刻でも・静止表示でも描画順が同じ。 */
+#result .inner-shake { position: absolute; inset: 0; z-index: 2; }
 #result .cat { position: absolute; left: 34px; top: 76px; font-family: var(--f-disp); font-weight: 400; line-height: 1; letter-spacing: -.045em; color: var(--cat); white-space: nowrap; z-index: 3; }
 #result .cat .ch { display: inline-block; overflow: hidden; padding: .08em .06em .08em 0; margin: -.08em 0; }
 #result .cat .chi { display: block; }
@@ -363,10 +369,16 @@
 #stage.t-sponsor #result .ht { display: block; }
 #result .plabel { position: absolute; left: 40px; top: 300px; font-family: var(--f-mono); font-weight: 500; font-size: 15px; letter-spacing: .1em; z-index: 3; display: flex; gap: 10px; align-items: center; }
 #result .plabel b { background: var(--fg); color: var(--bg); padding: 3px 8px; font-weight: 500; }
-#result .prize { position: absolute; left: 36px; top: 330px; font-family: var(--f-disp); font-weight: 400; letter-spacing: -.045em; line-height: 1.1; color: var(--fg); white-space: nowrap; z-index: 3; display: block; }
+/* 景品名・パネルは「覗き窓」の中に入れる（演出中だけ窓が overflow:hidden になり、中身は止まったまま窓の縁で少しずつ現れる。下の「結果の登場」を参照）。
+   背景色のカバー（::after）で隠すと、舵輪マーク（背面）まで覆って欠けて見えるため。静止状態では窓は何もしない（位置とふくらみだけ）。
+   景品名：.pwin が位置（top は stage.js が決める）、.prize が本体。窓はふくらみ（上下12・右12・左8px）を持ち、字面のはみ出しを切らない（位置は負マージンで相殺） */
+#result .pwin { position: absolute; left: 36px; top: 330px; z-index: 3; padding: 12px 12px 12px 8px; margin: -12px 0 0 -8px; }
+#result .prize { display: block; font-family: var(--f-disp); font-weight: 400; letter-spacing: -.045em; line-height: 1.1; color: var(--fg); white-space: nowrap; }
 #result .prize .pp { display: inline-block; white-space: nowrap; }
 #result .prize.multi { white-space: normal; }
-#result .panel { position: absolute; left: 40px; bottom: 130px; width: 610px; height: 210px; background: var(--panelbg); color: var(--panelfg); padding: 26px 30px; z-index: 3; }
+/* パネル：.panel が窓（位置と大きさ）、.pin が本体（背景・余白・文字） */
+#result .panel { position: absolute; left: 40px; bottom: 130px; width: 610px; height: 210px; z-index: 3; }
+#result .panel .pin { position: absolute; inset: 0; background: var(--panelbg); color: var(--panelfg); padding: 26px 30px; }
 #result .panel small { display: block; font-family: var(--f-mono); font-weight: 500; font-size: 15px; letter-spacing: .1em; }
 #result .panel p { font-family: var(--f-disp); font-weight: 400; font-size: 42px; line-height: 1.25; letter-spacing: -.035em; margin-top: 14px; }
 #result .panel p span { display: block; white-space: nowrap; }
@@ -411,7 +423,8 @@
 #stage[data-o=p] #result .dno small { margin: 0; }
 #stage[data-o=p] #result .dno b { font-size: 60px; }
 #stage[data-o=p] #result .ht { top: 74px; left: 40px; right: 40px; width: auto; height: 56px; }
-#stage[data-o=p] #result .panel { width: 520px; height: 200px; bottom: 150px; padding: 22px 26px; }
+#stage[data-o=p] #result .panel { width: 520px; height: 200px; bottom: 150px; }
+#stage[data-o=p] #result .panel .pin { padding: 22px 26px; }
 #stage[data-o=p] #result .panel p { font-size: 37px; }
 #stage[data-o=p] #result .stamp { right: 28px; bottom: 200px; }
 #stage[data-o=p].t-sticker #result .stamp { right: 40px; bottom: 210px; }
@@ -434,21 +447,49 @@
 
 /* ================= 演出の進行（保存完了を 0ms とする） ================= */
 @keyframes vis { from { visibility: hidden; } to { visibility: visible; } }
-@keyframes hide { from { visibility: visible; } to { visibility: hidden; } }
+@keyframes hide { from { visibility: visible; } to { visibility: hidden; } }   /* 見えない層（シャッターの陰の舵輪の画面）にだけ使う */
+@keyframes off { from { opacity: 1; } to { opacity: 0; } }   /* 見える層の「消す」は visibility ではなく 1ms の opacity で（pointer-events は元々 none） */
 @keyframes colUp { from { transform: translateY(101%); } to { transform: none; } }
 @keyframes colDn { from { transform: translateY(-101%); } to { transform: none; } }
-@keyframes sweep { 0% { transform: translateX(-101%); visibility: visible; } 45% { transform: none; } 100% { transform: translateX(101%); visibility: visible; } }
+@keyframes sweep { 0% { transform: translateX(-101%); } 45% { transform: none; } 100% { transform: translateX(101%); } }
 /* Dela は字面と影が行ボックス(line-height .88)からはみ出すため、マスク外まで十分に送る */
 @keyframes slamUp { from { transform: translateY(135%); } to { transform: none; } }
 @keyframes slamOut { from { transform: none; } to { transform: translateY(-145%); } }
 @keyframes scaleX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes coverU { from { transform: scaleY(1); } to { transform: scaleY(0); } }
 @keyframes coverIn { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+/* 覗き窓：窓を動かしつつ中身を逆向きに同じ量だけ動かす（中身は止まって見える）。窓の縁（overflow:hidden）が中身を少しずつ見せる。
+   景品名の窓は左 8px・右 12px のふくらみを持つので、動かす量は「本体の幅 + 12px」（従来のカバーの幅と同じ）：
+   窓は -100% + 8px（窓の幅 − 左のふくらみ）、中身は +100% + 12px。縁の位置の時間変化がカバー（scaleX）と一致する */
+@keyframes winU { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes winUi { from { transform: translateY(-100%); } to { transform: none; } }
+@keyframes winR { from { transform: translateX(calc(-100% + 8px)); } to { transform: none; } }
+@keyframes winRi { from { transform: translateX(calc(100% + 12px)); } to { transform: none; } }
 @keyframes tick { from { opacity: .99; } to { opacity: 1; } }
 @keyframes on { from { opacity: .001; } to { opacity: 1; } }
 @keyframes wheelRot { from { transform: rotate(-135deg) scale(1.14); opacity: 0; } 25% { opacity: 1; } to { transform: none; } }
 @keyframes stampIn { 0% { transform: rotate(-24deg) scale(2.5); opacity: 0; } 38% { opacity: 1; } 100% { transform: rotate(-7deg) scale(1); opacity: 1; } }
-@keyframes shake { 0% { transform: translate(0, 0); } 25% { transform: translate(-7px, 5px); } 50% { transform: translate(5px, -3px); } 75% { transform: translate(-2px, 1px); } 100% { transform: none; } }
+/* 揺れ：(0,0) → (-7,5) → (5,-3) → (-2,1) → 0 の各区間を steps(4, end) で刻んでいたものを、複製した線形キーフレームで表す
+   （1段 = 全体の 1/16 = 15ms ずつ値を保持。段の切れ目は 0.01% ≒ 0.02ms の線形で、見た目は steps と同じ。WebKit は steps() をコンポジタで動かせないことがある） */
+@keyframes shake {
+  0%, 6.24% { transform: translate(0, 0); }
+  6.25%, 12.49% { transform: translate(-1.75px, 1.25px); }
+  12.5%, 18.74% { transform: translate(-3.5px, 2.5px); }
+  18.75%, 24.99% { transform: translate(-5.25px, 3.75px); }
+  25%, 31.24% { transform: translate(-7px, 5px); }
+  31.25%, 37.49% { transform: translate(-4px, 3px); }
+  37.5%, 43.74% { transform: translate(-1px, 1px); }
+  43.75%, 49.99% { transform: translate(2px, -1px); }
+  50%, 56.24% { transform: translate(5px, -3px); }
+  56.25%, 62.49% { transform: translate(3.25px, -2px); }
+  62.5%, 68.74% { transform: translate(1.5px, -1px); }
+  68.75%, 74.99% { transform: translate(-0.25px, 0); }
+  75%, 81.24% { transform: translate(-2px, 1px); }
+  81.25%, 87.49% { transform: translate(-1.5px, 0.75px); }
+  87.5%, 93.74% { transform: translate(-1px, 0.5px); }
+  93.75%, 99.99% { transform: translate(-0.5px, 0.25px); }
+  100% { transform: none; }
+}
 @keyframes popIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ring { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(1.9); opacity: 0; } }
 
@@ -468,13 +509,15 @@
 
 /* 結果面は演出の序盤（シャッターの陰）から opacity .001 で「描画だけ」しておく。cv で opacity 1。
    初めて見える瞬間に巨大な文字を描くとそこで引っかかるため（iPad Safari）。fast では使わない。 */
-#stage.playing:not(.fast) #result { visibility: hidden; opacity: .001; pointer-events: none;
-  animation: vis 1ms linear 200ms both, on 1ms linear var(--cv) both; }
-#stage.playing .scr-wheel { animation: hide 1ms linear var(--cv) forwards; }
+#stage.playing:not(.fast) #result { animation: vis 1ms linear 200ms both, on 1ms linear var(--cv) both; }
+/* 準備中（seq）だけ見えない・触れない。終わって screen=result になったら（.playing は残ったまま）これを外す＝OKボタンが押せる。
+   アニメーションの終端値（visible / opacity 1）は静止表示と同じ */
+#stage.playing:not(.fast)[data-screen=seq] #result { visibility: hidden; opacity: .001; pointer-events: none; }
+#stage.playing .scr-wheel { animation: hide 1ms linear var(--cv) forwards; }   /* シャッターが全面を覆っている間に隠す（見えない変化） */
 
 /* シャッター: スポンサー=群青が左→右に立ち上がり、赤が右→左に降りる */
-#stage.playing.t-sponsor #shut .a i { background: var(--blue); animation: colUp 480ms var(--ease-hard) both, hide 1ms linear var(--cv) forwards; }
-#stage.playing.t-sponsor #shut .b i { background: var(--red); animation: colDn 480ms var(--ease-hard) both, hide 1ms linear var(--cv) forwards; }
+#stage.playing.t-sponsor #shut .a i { background: var(--blue); animation: colUp 480ms var(--ease-hard) both, off 1ms linear var(--cv) forwards; }
+#stage.playing.t-sponsor #shut .b i { background: var(--red); animation: colDn 480ms var(--ease-hard) both, off 1ms linear var(--cv) forwards; }
 #stage.playing.t-sponsor #shut .a i:nth-child(1) { animation-delay: 400ms, var(--cv); }
 #stage.playing.t-sponsor #shut .a i:nth-child(2) { animation-delay: 470ms, var(--cv); }
 #stage.playing.t-sponsor #shut .a i:nth-child(3) { animation-delay: 540ms, var(--cv); }
@@ -488,8 +531,8 @@
 #stage.playing.t-sponsor #shut .b i:nth-child(2) { animation-delay: 980ms, var(--cv); }
 #stage.playing.t-sponsor #shut .b i:nth-child(1) { animation-delay: 1050ms, var(--cv); }
 /* レア: 紙が降りて、中央から群青が割れる */
-#stage.playing.t-rare #shut .a i { background: var(--paper); animation: colDn 420ms var(--ease-hard) 800ms both, hide 1ms linear var(--cv) forwards; animation-delay: 800ms, var(--cv); }
-#stage.playing.t-rare #shut .b i { background: var(--blue); animation: colUp 500ms var(--ease-hard) both, hide 1ms linear var(--cv) forwards; }
+#stage.playing.t-rare #shut .a i { background: var(--paper); animation: colDn 420ms var(--ease-hard) 800ms both, off 1ms linear var(--cv) forwards; animation-delay: 800ms, var(--cv); }
+#stage.playing.t-rare #shut .b i { background: var(--blue); animation: colUp 500ms var(--ease-hard) both, off 1ms linear var(--cv) forwards; }
 #stage.playing.t-rare #shut .b i:nth-child(3), #stage.playing.t-rare #shut .b i:nth-child(4) { animation-delay: 1050ms, var(--cv); }
 #stage.playing.t-rare #shut .b i:nth-child(2), #stage.playing.t-rare #shut .b i:nth-child(5) { animation-delay: 1120ms, var(--cv); }
 #stage.playing.t-rare #shut .b i:nth-child(1), #stage.playing.t-rare #shut .b i:nth-child(6) { animation-delay: 1190ms, var(--cv); }
@@ -499,20 +542,19 @@
 
 /* スポンサー: タイトルカード（出た文字が全部消えてから結果の登場が始まる） */
 #stage.playing.t-sponsor #card { visibility: hidden; opacity: .001;
-  animation: vis 1ms linear 200ms both, on 1ms linear var(--cv) both, hide 1ms linear var(--r0) forwards; }
-/* 大きな文字のレイヤーは演出中だけ will-change（終わったら外してメモリを返す） */
-#stage.playing #card .big .chi, #stage.playing #result .cat .chi { will-change: transform; }
+  animation: vis 1ms linear 200ms both, on 1ms linear var(--cv) both, off 1ms linear var(--r0) forwards; }
 #stage:not(.t-sponsor):not(.warm) #card { display: none !important; }
 #stage.playing.t-sponsor #card .big .chi {
   animation: slamUp 560ms var(--ease-slam) both, slamOut 360ms var(--ease-hard) both;
   animation-delay: calc(var(--cv) + 120ms + var(--k) * var(--kd, 80ms)), calc(var(--cout) + var(--k) * var(--kd, 80ms) * .5);
 }
-#stage.playing.t-sponsor #card .capline { animation: scaleX 700ms var(--ease-hard) calc(var(--cv) + 100ms) both, popIn 1ms linear var(--cout) reverse forwards; }
-#stage.playing.t-sponsor #card .cap { animation: popIn 1ms linear calc(var(--cv) + 400ms + var(--k) * 120ms) both, hide 1ms linear var(--cout) forwards; }
+#stage.playing.t-sponsor #card .capline { animation: scaleX 700ms var(--ease-hard) calc(var(--cv) + 100ms) both, off 1ms linear var(--cout) forwards; }
+#stage.playing.t-sponsor #card .cap { animation: popIn 1ms linear calc(var(--cv) + 400ms + var(--k) * 120ms) both, off 1ms linear var(--cout) forwards; }
 
 /* 結果の登場 */
-/* 左→右・下→上のワイプ：要素そのものは動かさず、背景色のカバー（::after）を scale で外す（transform のみ） */
-#stage.playing #result :is(.meta, .ht, .plabel, .prize, .panel)::after {
+/* 左→右・下→上のワイプ：要素そのものは動かさず、背景色のカバー（::after）を scale で外す（transform のみ）。
+   舵輪マークと重なる景品名・パネルだけは、カバーではなく覗き窓（下）で出す */
+#stage.playing #result :is(.meta, .ht, .plabel)::after {
   content: ""; position: absolute; inset: -6px -12px -6px 0; z-index: 9; background: var(--bg); pointer-events: none; transform-origin: 100% 50%;
 }   /* 文字の字送りではみ出す分（右へ数px）まで覆う */
 #stage.playing #result .meta::after { top: 0; bottom: -3px; animation: coverR var(--d-meta) var(--ease-hard) calc(var(--r0) + var(--o-meta)) both; }
@@ -521,14 +563,36 @@
 #stage.playing #result .rule { animation: scaleX var(--d-rule) var(--ease-hard) calc(var(--r0) + var(--o-rule)) both; }
 #stage.playing #result .ht::after { animation: coverR var(--d-num) var(--ease-hard) calc(var(--r0) + var(--o-num)) both; }
 #stage.playing #result .plabel::after { animation: coverR var(--d-plabel) var(--ease-hard) calc(var(--r0) + var(--o-plabel)) both; }
-#stage.playing #result .prize::after { animation: coverR var(--d-prize) var(--ease-hard) calc(var(--r0) + var(--o-prize)) both; }
-#stage.playing #result .panel::after { inset: 0; transform-origin: 50% 0; animation: coverU var(--d-panel) var(--ease-hard) calc(var(--r0) + var(--o-panel)) both; }
+/* 景品名：左→右に現れる（窓が左から右へ、中身は逆向き）。パネル：下→上に現れる。時刻・長さ・イージングは従来のカバーと同じ */
+#stage.playing:not(.fast) #result :is(.pwin, .panel) { overflow: hidden; }
+#stage.playing:not(.fast) #result .pwin { animation: winR var(--d-prize) var(--ease-hard) calc(var(--r0) + var(--o-prize)) both; }
+#stage.playing:not(.fast) #result .prize { animation: winRi var(--d-prize) var(--ease-hard) calc(var(--r0) + var(--o-prize)) both; }
+#stage.playing:not(.fast) #result .panel { animation: winU var(--d-panel) var(--ease-hard) calc(var(--r0) + var(--o-panel)) both; }
+#stage.playing:not(.fast) #result .panel .pin { animation: winUi var(--d-panel) var(--ease-hard) calc(var(--r0) + var(--o-panel)) both; }
 #stage.playing #result .wmw .wm { animation: wheelRot var(--d-wm) var(--ease-slam) var(--at-wm) both; }
 #stage.playing #result .stamp { animation: stampIn 300ms cubic-bezier(.2, .9, .1, 1) calc(var(--r0) + var(--o-stamp)) both; }
-#stage.playing #result .stamp::after { content: ""; position: absolute; inset: 0; border: 3px solid var(--fg); border-radius: 50%; animation: ring 500ms cubic-bezier(.1, .7, .2, 1) calc(var(--r0) + var(--o-stamp) + 260ms) both; opacity: 0; }
-#stage.playing #result .inner-shake { animation: shake 240ms steps(4, end) calc(var(--r0) + var(--o-stamp) + 290ms) both; }
+#stage.playing #result .stamp::after { content: ""; position: absolute; inset: 0; border: 3px solid var(--fg); border-radius: 50%; pointer-events: none; animation: ring 500ms cubic-bezier(.1, .7, .2, 1) calc(var(--r0) + var(--o-stamp) + 260ms) both; opacity: 0; }
+#stage.playing #result .inner-shake { animation: shake 240ms linear calc(var(--r0) + var(--o-stamp) + 290ms) both; }
 /* スタッフ枠は演出中は空。ボタンが出る時刻の目印（animationend）としてだけ動かす */
 #stage.playing #result .staff { animation: tick 500ms linear calc(var(--r0) + var(--o-staff)) both; }
+
+/* レイヤーの安定化：演出中に動く要素は #stage.playing の間ずっと will-change を付ける。
+   コンポジットレイヤーを t=0（空転がコンポジタで回っている間）に一度だけ作り、演出の途中・スタッフのボタンが出る瞬間に作り直さない
+   （WebKit はアニメーションの終了や visibility の切り替えでレイヤーを作り直し、そのたびに再描画する）。
+   .playing は playReveal の終わりでは外さず、reset()（退場が済んだあと）で外す。動かない要素・大きな静止要素には付けない。
+   will-change は新しいスタッキングコンテキストを作る。ここに挙げた要素は、すでに z-index 付きの位置指定か、子を持たない葉か、
+   兄弟と描画順が入れ替わらないものだけ。fast は動かさないので付けない。
+   不透明度だけ動かす大きな要素（#result・#card・.staff・.cap）にも transform を付ける（opacity を付けると Chromium は終わったあとも
+   全面のレンダーサーフェス＝画面大の中間バッファを作り続ける。WebKit でも transform で同じくレイヤーに固定される）。 */
+#stage.playing:not(.fast) :is(#result, #card, #card .cap, #result .staff, #card .big .chi, #result .cat .chi, #result .rule, #result .inner-shake, #result .pwin, #result .prize, #result .panel, #result .panel .pin) { will-change: transform; }
+/* 舵輪マークの入れ物（.wmw）にも付ける（中身は動く .wm 1つ。.wmw 自身は描画する中身を持たないので追加のメモリはほぼ無い）。
+   付けないと、回っている舵輪の「上」に結果の中身（.inner-shake: z-index 2）が重なる構図で、コンポジタの重なり処理が毎フレーム重くなる（Chromium 実測：演出の序盤で主スレッドのフレームが半分に落ちる） */
+#stage.playing:not(.fast) #result .wmw { will-change: transform; }
+#stage.playing:not(.fast) :is(#card .capline, #result .wmw .wm, #result .stamp) { will-change: transform, opacity; }
+#stage.playing:not(.fast) #result .stamp::after { will-change: transform, opacity; }
+#stage.playing:not(.fast) #result :is(.meta, .ht, .plabel)::after { will-change: transform; }
+#stage.playing.t-sponsor #shut :is(.a, .b) i, #stage.playing.t-rare #shut :is(.a, .b) i { will-change: transform, opacity; }
+#stage.playing.t-sticker #shut .sweep { will-change: transform; }
 
 /* 退場（OK後）：結果面が右へ畳まれて紙に戻る */
 #stage.leaving #result::after { content: ""; position: absolute; inset: 0; z-index: 30; background: var(--bg); pointer-events: none;

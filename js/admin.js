@@ -562,6 +562,15 @@ async function wipeFlow() {
 }
 
 // ---------- 設定タブ ----------
+// 効果音の状態（sound.status()）→ 表示文とピルの色
+const SOUND_STATUS = {
+  running: ['再生できます', 'ok'],
+  locked: ['画面をタップすると有効になります', 'warn'],
+  interrupted: ['中断中（タップで再開）', 'warn'],
+  unavailable: ['この端末では使えません', 'bad'],
+  off: ['オフ（設定）', 'warn'],
+};
+
 async function renderSettings(el) {
   const cfg = await db.getConfig();
   const rule = cfg.studentIdRule;
@@ -582,6 +591,39 @@ async function renderSettings(el) {
   enabled.addEventListener('change', saveSound);
   vol.addEventListener('change', async () => { await saveSound(); try { sound.play('tap'); } catch { /* noop */ } });
 
+  // 再生できる状態かの表示と、テスト音（このボタンのクリック自体が音を解錠するタップになる）
+  const sndPill = h('span', { 'data-testid': 'sound-status' });
+  const paintSnd = () => {
+    let s = 'locked';
+    try { s = sound.status(); } catch { /* noop */ }
+    const [text, kind] = SOUND_STATUS[s] || SOUND_STATUS.locked;
+    sndPill.className = `pill pill--${kind}`;
+    sndPill.textContent = text;
+    sndPill.setAttribute('data-status', s);
+  };
+  paintSnd();
+  // 状態が変わったら更新する。この画面が消えたら（再描画・閉じる）自動で購読をやめる。
+  // iOS は状態の変化を通知しないことがあるので、表示中だけ軽く見張る。
+  let offSnd = () => {};
+  let sndTimer = 0;
+  const refreshSnd = () => {
+    if (!sndPill.isConnected) { offSnd(); clearInterval(sndTimer); return; }
+    paintSnd();
+  };
+  try { offSnd = sound.onStatusChange(refreshSnd); } catch { /* noop */ }
+  sndTimer = setInterval(refreshSnd, 1500);
+  const testBtn = h('button', {
+    type: 'button', class: 'btn btn--primary btn--lg', 'data-testid': 'sound-test',
+    onclick: () => {
+      try { sound.unlock(); sound.test(); } catch { /* noop */ }
+      paintSnd();
+      let s = '';
+      try { s = sound.status(); } catch { /* noop */ }
+      if (s === 'off') toast('効果音がオフです。「効果音を鳴らす」をオンにして、音量を上げてください');
+      else if (s === 'unavailable') toast('この端末では効果音を使えません');
+    },
+  }, 'テスト音を鳴らす');
+
   const pins = ['現在のPIN', '新しいPIN', '新しいPIN（確認）'].map((ph, i) =>
     h('input', { type: 'password', class: 'txt', inputmode: 'numeric', maxLength: PIN_MAX, placeholder: ph, autocomplete: 'off', 'data-testid': `pin-${['cur', 'new', 'new2'][i]}` }));
 
@@ -597,7 +639,10 @@ async function renderSettings(el) {
       }, 'primary', { 'data-testid': 'rule-save' })),
     card('効果音',
       h('div', { class: 'a-row' }, h('label', { class: 'chk' }, enabled, ' 効果音を鳴らす'), h('label', {}, '音量 ', vol)),
-      h('p', { class: 'a-note' }, '変更はすぐに反映されます。')),
+      h('div', { class: 'a-row' }, h('span', { class: 'a-note' }, '状態'), sndPill),
+      h('div', { class: 'a-row' }, testBtn),
+      h('p', { class: 'a-note' }, '変更はすぐに反映されます。'),
+      h('p', { class: 'a-note', 'data-testid': 'sound-help' }, '音が出ないとき：iPad本体の音量ボタン／コントロールセンターの消音（ベル）／Bluetoothスピーカーの接続を確認。アプリを開き直したら一度画面をタップ。')),
     card('PINの変更',
       h('div', { class: 'a-row' }, ...pins),
       btn('PINを変更', async () => {
