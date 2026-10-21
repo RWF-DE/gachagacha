@@ -14,12 +14,16 @@ const arrow = () => '<svg class="ar" aria-hidden="true"><use href="#arrow"/></sv
 // ---------- 区分選択 ----------
 export function chooseScreen({ intro, onStudent, onGuest }) {
   const el = h('section', { class: `scr scr-choose ${intro ? 'intro' : 'quick'}`, 'data-testid': 'screen-choose' });
-  // 「Yo Draw」：語間は空白ではなく専用のスペーサー（inline-block 内の空白は潰れるため）
-  const letters = [...'Yo Draw'].map((c) => (c === ' ' ? '<span class="sp"></span>' : `<span class="c"><span class="ci">${c}</span></span>`)).join('');
-  el.innerHTML = `${metaHtml('YO DRAW — お宝ガチャ')}
+  // 「よーそろがちゃ」：1文字ずつ迫り上がる（.c = overflow:hidden の窓、.ci = 中身）。--k は何文字目か（登場の遅延）、
+  // --g は右隣との字間（em）。かな同士は字形の凹凸がまちまちなので、輪郭どうしの最小距離が 0.045em にそろうよう組み合わせごとに
+  // 測って決めた値（ー の左右は広め、ろ→が は詰め、ち→ゃ は小書きの分だけ大きく詰める）。縦置きだけ「よーそろ」/「がちゃ」の2行（.ln）。
+  const YO_GAP = [-0.066, -0.039, -0.019, -0.066, -0.041, -0.129, 0];
+  const chars = [...'よーそろがちゃ'].map((c, i) => `<span class="c" style="--k:${i};--g:${YO_GAP[i]}em"><span class="ci">${c}</span></span>`);
+  const letters = `<span class="ln">${chars.slice(0, 4).join('')}</span><span class="ln">${chars.slice(4).join('')}</span>`;
+  el.innerHTML = `${metaHtml('YOSORO GACHA — よーそろがちゃ')}
     <div class="bigw">${wheelMark()}</div>
-    <h1 class="yo" aria-label="Yo Draw">${letters}</h1>
-    <h2 class="takara">お宝ガチャ</h2>
+    <h1 class="yo" aria-label="よーそろがちゃ">${letters}</h1>
+    <p class="yomi" aria-hidden="true">YOSORO GACHA</p>
     <p class="tag">おひとり1回・参加無料</p>
     <div class="rows"></div>`;
   const row = (cls, n, title, sub, testid, onclick) => h('button', {
@@ -65,7 +69,7 @@ export function studentScreen({ rule, onSubmit, onBack }) {
       h('p', { class: 'note' }, jp('学籍番号は/参加済みの確認だけに/使います。')),
       h('button', { type: 'button', class: 'pbtn back', 'data-testid': 'back', onclick: onBack }, h('span', {}, '← 戻る'))),
     h('div', { class: 'st-right' }, keys));
-  el.insertAdjacentHTML('afterbegin', metaHtml('YO DRAW — お宝ガチャ'));
+  el.insertAdjacentHTML('afterbegin', metaHtml('YOSORO GACHA — よーそろがちゃ'));
   return { el, msg };
 }
 
@@ -112,7 +116,7 @@ function surveyFrame({ name, stepNo, heading, body, foot }) {
       h('b', {}, 'SURVEY'), h('span', { class: 'stp' }, `アンケート ${stepNo}/2`),
       h('span', { class: 'bars', 'aria-hidden': 'true' }, h('i', { class: 'on' }), h('i', { class: stepNo === 2 ? 'on' : '' }))),
     heading, body, foot);
-  el.insertAdjacentHTML('afterbegin', metaHtml('YO DRAW — SURVEY'));
+  el.insertAdjacentHTML('afterbegin', metaHtml('YOSORO GACHA — SURVEY'));
   return el;
 }
 
@@ -178,6 +182,6 @@ export function infoScreen({ name, tone = '', title, small = false, lead, tagged
       lead ? h('p', { class: `lead${tagged ? ' tagged' : ''}` }, jp(lead)) : null,
       actions.length ? h('div', { class: 'acts' }, actions.map((a) =>
         h('button', { type: 'button', class: `pbtn${a.solid ? ' solid' : ''}`, 'data-testid': a.testid, onclick: a.onClick }, h('span', {}, a.label)))) : null));
-  el.insertAdjacentHTML('afterbegin', `${metaHtml('YO DRAW — お宝ガチャ')}<div class="bigw">${wheelMark()}</div>`);
+  el.insertAdjacentHTML('afterbegin', `${metaHtml('YOSORO GACHA — よーそろがちゃ')}<div class="bigw">${wheelMark()}</div>`);
   return el;
 }

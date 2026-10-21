@@ -2,7 +2,7 @@
   "name": "yosoro-gacha",
   "version": "1.0.0",
   "private": true,
-  "description": "電波祭2026 お宝ガチャ（オフライン対応の景品抽選PWA）",
+  "description": "電波祭2026 よーそろがちゃ（オフライン対応の景品抽選PWA）",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",

@@ -1,6 +1,6 @@
 {
-  "name": "Yo Draw（電波祭2026 お宝ガチャ）",
-  "short_name": "Yo Draw",
+  "name": "よーそろがちゃ（電波祭2026）",
+  "short_name": "よーそろがちゃ",
   "description": "電波祭2026 景品抽選（オフライン対応）",
   "start_url": "./",
   "scope": "./",

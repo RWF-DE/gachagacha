@@ -1,4 +1,4 @@
-/* Yo Draw（お宝ガチャ） — プレイヤー画面（ポスター）
+/* よーそろがちゃ — プレイヤー画面（ポスター）
    基準 横1180×820 / 縦820×1180（[data-o=p]）。--W --H --ex は js/poster.js の fitStage が設定。
    動かすのは transform / opacity だけ（clip-path は動かさない：Safari ではコンポジタで動かず毎フレーム再描画になる）。
    visibility は目に見える層では動かさない（見える層の切り替えは 1ms の opacity で。visibility の切り替えはレイヤーの作り直しと再描画を起こす）。
@@ -105,13 +105,17 @@
 
 /* ================= 区分選択（choose） ================= */
 .scr-choose { color: var(--ink); }
-.scr-choose .yo { position: absolute; left: 30px; top: 42px; z-index: 2; font-family: var(--f-num); font-weight: 900; font-size: 250px; line-height: 1; letter-spacing: -.032em; color: var(--blue); white-space: nowrap; }
-.scr-choose .yo .c { display: inline-block; overflow: hidden; vertical-align: top; margin-top: .02em; padding: 0 8px 8px 0; margin-right: -8px; height: calc(.86em + 8px); }
+/* 巨大な「よーそろがちゃ」（Dela Gothic One・群青に赤の版ズレ影）。横置きは1行で、左右の端は旧ワードマークと同じ（x=33〜1104）。
+   各字は .c（overflow:hidden の窓）の中の .ci が迫り上がる。--k = 何文字目か（登場の遅延）、--g = 右隣との字間（js/screens.js の YO_GAP）。
+   窓の右と下の 8px は版ズレの影ぶん（影も下端の ゃ・が も窓で切れない）。縦置きだけ「よーそろ」/「がちゃ」の2行（.ln）。 */
+.scr-choose .yo { position: absolute; left: 26px; top: calc(62px + var(--ex) * .15); z-index: 2; margin: 0; font-family: var(--f-disp); font-weight: 400; font-size: 164px; line-height: 1; color: var(--blue); white-space: nowrap; }
+.scr-choose .yo .ln { display: inline; }
+.scr-choose .yo .c { display: inline-block; overflow: hidden; vertical-align: top; padding: 0 8px 8px 0; margin-right: calc(var(--g, 0em) - 8px); height: calc(1em + 8px); }
 .scr-choose .yo .ci { display: block; transform-origin: 50% 100%; text-shadow: 5px 4px 0 var(--red); }
-.scr-choose .yo .c:nth-child(1) { margin-right: -24px; }
-.scr-choose .yo .sp { display: inline-block; vertical-align: top; width: .25em; height: 1px; }
-.scr-choose .takara { position: absolute; left: 40px; top: calc(322px + var(--ex) * .3); font-family: var(--f-disp); font-weight: 400; font-size: 108px; line-height: 1; letter-spacing: -.045em; color: var(--ink); white-space: nowrap; }
-.scr-choose .tag { position: absolute; left: 40px; top: calc(452px + var(--ex) * .45); background: var(--red); color: var(--paper); font-size: 26px; line-height: 1; padding: 11px 18px; letter-spacing: .06em; white-space: nowrap; }
+/* 読み：Archivo 900 の「YOSORO GACHA」（インク色）。字間を開けて、左右の端をワードマークの幅（x=40〜1104）にそろえる。
+   字送りは小数に固定（geometricPrecision。Linux の Chromium は整数に丸めて、幅が数 px ずれるため）。装飾なので js/screens.js で aria-hidden。 */
+.scr-choose .yomi { position: absolute; left: 40px; top: calc(267px + var(--ex) * .38); margin: 0; font-family: var(--f-num); font-weight: 900; font-size: 104px; line-height: 1; letter-spacing: .122em; text-rendering: geometricPrecision; color: var(--ink); white-space: nowrap; }
+.scr-choose .tag { position: absolute; left: 40px; top: calc(412px + var(--ex) * .62); background: var(--red); color: var(--paper); font-size: 26px; line-height: 1; padding: 11px 18px; letter-spacing: .06em; white-space: nowrap; }
 .scr-choose .rows { position: absolute; left: 40px; bottom: 24px; width: 560px; }
 .row {
   position: relative; display: grid; grid-template-columns: 70px 1fr 58px; align-items: center; width: 100%; height: 124px; text-align: left;
@@ -131,26 +135,21 @@
 @keyframes slow { to { transform: rotate(360deg); } }
 
 /* 初回だけの登場 */
-.scr-choose.intro .yo .ci { animation: charUp .9s var(--ease-slam) both; }
-.scr-choose.intro .yo .c:nth-child(1) .ci { animation-delay: .05s; }
-.scr-choose.intro .yo .c:nth-child(2) .ci { animation-delay: .12s; }
-.scr-choose.intro .yo .c:nth-child(4) .ci { animation-delay: .19s; }
-.scr-choose.intro .yo .c:nth-child(5) .ci { animation-delay: .26s; }
-.scr-choose.intro .yo .c:nth-child(6) .ci { animation-delay: .33s; }
-.scr-choose.intro .yo .c:nth-child(7) .ci { animation-delay: .40s; }
-.scr-choose.intro .takara::after { animation: coverR .8s var(--ease-hard) .7s both; }
+.scr-choose.intro .yo .ci { animation: charUp .9s var(--ease-slam) calc(.05s + var(--k, 0) * .07s) both; }
+.scr-choose.intro .yomi::after { animation: coverR .8s var(--ease-hard) .7s both; }
 .scr-choose.intro .tag::after { animation: coverR .5s var(--ease-hard) 1s both; }
 .scr-choose.intro .rw.a { animation: rwOut .6s var(--ease-hard) 1.1s both; }
 .scr-choose.intro .rw.a .row { animation: rwIn .6s var(--ease-hard) 1.1s both; }
 .scr-choose.intro .rw.b { animation: rwOut .6s var(--ease-hard) 1.22s both; }
 .scr-choose.intro .rw.b .row { animation: rwIn .6s var(--ease-hard) 1.22s both; }
 .scr-choose.intro .bigw { animation: wheelIn 1.5s var(--ease-slam) .3s both; }
-.scr-choose.quick .takara::after, .scr-choose.quick .tag::after { animation: coverR .4s var(--ease-hard) both; }
+.scr-choose.quick .yomi::after, .scr-choose.quick .tag::after { animation: coverR .4s var(--ease-hard) both; }
 .scr-choose.quick .rw { animation: rwOut .4s var(--ease-hard) both; }
 .scr-choose.quick .rw .row { animation: rwIn .4s var(--ease-hard) both; }
-/* 左→右のワイプ用カバー（紙色。右端を支点に scaleX(1→0)）。intro / quick の間だけ存在する */
-.scr-choose.intro .takara::after, .scr-choose.intro .tag::after, .scr-choose.quick .takara::after, .scr-choose.quick .tag::after {
-  content: ""; position: absolute; inset: 0; background: var(--bg); transform-origin: 100% 50%; pointer-events: none;
+/* 左→右のワイプ用カバー（紙色。右端を支点に scaleX(1→0)）。intro / quick の間だけ存在する。
+   2px はみ出させる：拡縮で端が小数の画素になる画面（1024×768 など）で、赤いタグの縁のにじみがカバーの外に細い線として見えるため */
+.scr-choose.intro .yomi::after, .scr-choose.intro .tag::after, .scr-choose.quick .yomi::after, .scr-choose.quick .tag::after {
+  content: ""; position: absolute; inset: -2px; background: var(--bg); transform-origin: 100% 50%; pointer-events: none;
 }
 /* 行は「枠（.rw）を右へ動かしつつ中身（.row）を左へ同量だけ動かす」で左→右にワイプする（中身は止まって見える）。
    下に舵輪があっても隠さない。枠の overflow:hidden は登場の間だけ（.anim。フォーカスの輪郭を切らないため） */
@@ -164,11 +163,16 @@
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes wheelIn { from { transform: rotate(-120deg) scale(.86); opacity: 0; } 30% { opacity: 1; } to { transform: none; } }
 
-[data-o=p] .scr-choose .yo { font-size: 178px; left: 24px; top: 84px; }
-[data-o=p] .scr-choose .takara { font-size: 112px; left: 40px; top: 340px; }
-[data-o=p] .scr-choose .tag { top: 478px; }
+/* 縦置き：「よーそろ」「がちゃ」の2行（199px・行送り .88em・左右の端は x=26〜784）。3:4 の画面（--ew > 0）では幅に合わせて大きくする。
+   縦に余る分は舵輪マークと行のあいだの空きになる（舵輪の先端は読みの 55px 以上下） */
+[data-o=p] .scr-choose .yo { font-size: calc(199px + var(--ew) * .243); left: 17px; top: 78px; }
+[data-o=p] .scr-choose .yo .ln { display: block; height: .88em; }
+/* 2行目の「が」は左の余白がほぼ 0（1行目の「よ」は .044em）。左端の輪郭をそろえる */
+[data-o=p] .scr-choose .yo .ln + .ln { margin-left: .043em; }
+[data-o=p] .scr-choose .yomi { font-size: calc(76px + var(--ew) * .1); letter-spacing: .077em; top: calc(496px + var(--ew) * .43); }
+[data-o=p] .scr-choose .tag { top: calc(615px + var(--ew) * .5); }
 [data-o=p] .scr-choose .rows { width: auto; right: 40px; bottom: 36px; }
-[data-o=p] .scr-choose .bigw { right: -200px; top: 520px; bottom: auto; width: 640px; height: 640px; }
+[data-o=p] .scr-choose .bigw { right: -200px; top: calc(610px + var(--ew) * .5); bottom: auto; width: 640px; height: 640px; }
 
 /* ================= 学籍番号（student） ================= */
 .scr-student { display: grid; grid-template-columns: 600px 1fr; column-gap: 40px; padding: 92px 40px 40px; }
@@ -609,7 +613,7 @@
 @media (prefers-reduced-motion: reduce) {
   .scr-choose .bigw .wm { animation: none; }
   .scr-choose.intro *, .scr-choose.quick * { animation: none !important; }
-  .scr-choose .takara::after, .scr-choose .tag::after { content: none !important; }
+  .scr-choose .yomi::after, .scr-choose .tag::after { content: none !important; }
   .pbtn::before, .row .wipe, .scr-wheel .go .wipe { transition: none; }
 }
 .sv-foot .pbtn { min-height: 78px; }   /* 1024×768 の縮小（約0.87倍）でも実寸64px以上 */

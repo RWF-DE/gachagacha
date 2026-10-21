@@ -26,7 +26,7 @@ import {
 import { createPerf } from './perf.js';
 
 const TIERS = {
-  sponsor: { mid: 'SPONSOR AWARD', capC: 'Yo Draw — Sponsor Award', base: { l: 178, p: 150 }, prize: { l: 112, p: 100 }, sound: 'fanfare-sponsor' },
+  sponsor: { mid: 'SPONSOR AWARD', capC: 'YoSoro Gacha — Sponsor Award', base: { l: 178, p: 150 }, prize: { l: 112, p: 100 }, sound: 'fanfare-sponsor' },
   rare: { mid: 'RARE STICKER', base: { l: 148, p: 140 }, prize: { l: 112, p: 100 }, sound: 'fanfare-rare' },
   sticker: { mid: 'STICKER', base: { l: 158, p: 150 }, prize: { l: 116, p: 104 }, sound: 'fanfare-sticker' },
 };
@@ -142,7 +142,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     const el = document.createElement('section');
     el.className = 'scr scr-wheel';
     el.setAttribute('data-testid', 'screen-wheel');
-    el.innerHTML = `${metaHtml('YO DRAW — お宝ガチャ')}
+    el.innerHTML = `${metaHtml('YOSORO GACHA — よーそろがちゃ')}
       <div class="step"><b>DRAW</b> TURN THE WHEEL</div>
       <h2><span class="ph">舵輪を回して、</span><br><span class="ph"><em>お宝</em>を引こう！</span></h2>
       <p class="sub"><span class="ph">舵輪をぐるっと回すか、</span><q>タップでまわす</q><span class="ph">を押して</span><span class="ph">ください。</span></p>

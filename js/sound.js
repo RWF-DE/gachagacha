@@ -1,4 +1,4 @@
-/* Yo Draw（お宝ガチャ） — 効果音（Web Audio で合成。音声ファイルなし）
+/* よーそろがちゃ — 効果音（Web Audio で合成。音声ファイルなし）
  *
  * 契約（js/stage.js・js/app.js・js/admin.js が使う）
  *   sound.unlock()                                   冪等。どのジェスチャ（タップ・キー）の中で呼んでもよい
