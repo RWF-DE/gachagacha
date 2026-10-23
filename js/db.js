@@ -121,6 +121,26 @@ export async function getConfig() {
   return (await getMeta('config')) ?? null;
 }
 
+/**
+ * 既設端末の景品設定に残る旧名称を更新する。
+ * inventory のキーと抽選履歴は prizeId を使うため id は変えず、在庫と過去の記録を保つ。
+ */
+export function migrateGamjaPrizeName() {
+  return runTx(['meta', 'logs'], 'readwrite', (tx, ok) => {
+    const meta = tx.objectStore('meta');
+    const req = meta.get('config');
+    req.onsuccess = () => {
+      const config = req.result?.value;
+      const prize = config?.prizes?.find((p) => p.id === 'bulldak' && p.name === 'ブルダック炒め麺');
+      if (!prize) return ok(false);
+      prize.name = 'カムジャ麺';
+      meta.put({ key: 'config', value: config });
+      addLog(tx, 'prize-name-migration', { prizeId: 'bulldak', from: 'ブルダック炒め麺', to: prize.name });
+      ok(true);
+    };
+  });
+}
+
 export async function isSetUp() {
   const c = await getConfig();
   return !!(c && c.pinHash);

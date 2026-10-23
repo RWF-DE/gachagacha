@@ -231,6 +231,33 @@ try {
     assert.equal(d.inventory.length, 14);
     assert.equal(d.inventory.find((r) => r.key === 'day1:sticker-denpasai').remaining, 6);
     assert.ok(metaVal(d, 'config').pinHash && metaVal(d, 'config').pinHash !== PIN, 'PIN はハッシュで保存');
+
+    // 既設端末を再現し、更新後の起動で表示名だけが変わり在庫キーは残ることを確認。
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const req = indexedDB.open('yosoro-gacha');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta'], 'readwrite');
+        const store = tx.objectStore('meta');
+        const configReq = store.get('config');
+        configReq.onsuccess = () => {
+          const config = configReq.result.value;
+          config.prizes.find((p) => p.id === 'bulldak').name = 'ブルダック炒め麺';
+          store.put({ key: 'config', value: config });
+        };
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+    }));
+    const inventoryBeforeMigration = invSummary(d);
+    await page.reload();
+    await waitScreen('choose');
+    const migrated = await dumpDb();
+    const migratedConfig = metaVal(migrated, 'config');
+    assert.equal(migratedConfig.prizes.find((p) => p.id === 'bulldak').name, 'カムジャ麺');
+    assert.deepEqual(invSummary(migrated), inventoryBeforeMigration, '在庫と prizeId は維持される');
+    assert.ok(migrated.logs.some((l) => l.type === 'prize-name-migration'), '名称変更がログに残る');
   });
 
   await step('プレイヤー画面に残数・確率が出ない', async () => {
