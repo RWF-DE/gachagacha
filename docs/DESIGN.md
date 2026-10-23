@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | sponsor | 協賛特別賞 | グリーンランド招待券 | 3 | 3 |
 | sponsor | 協賛特別賞 | E・ZO FUKUOKA招待券 | 3 | 3 |
-| sponsor | 協賛特別賞 | ブルダック炒め麺 | 50 | 50 |
+| sponsor | 協賛特別賞 | カムジャ麺 | 50 | 50 |
 | rare | レアステッカー賞 | 茨城コラボステッカー〈レア〉 | 0（未定） | 0（未定） |
 | rare | レアステッカー賞 | 電波祭ステッカー〈レア〉 | 25 | 25 |
 | sticker | ステッカー賞 | 茨城コラボステッカー | 0（未定） | 0（未定） |
@@ -22,7 +22,8 @@
 
 - 上記は `js/config.js` の初期値。賞の名称・景品名・日別本数はスタッフ画面で編集可能。
   「未定」の景品は `countUnknown: true` を持ち、スタッフ画面で警告表示する。
-- ブルダックは届かない可能性があるので、スタッフ画面で残数を 0 にできれば足りる。
+- カムジャ麺が届かない場合は、スタッフ画面で残数を 0 にする。
+- 景品 ID `bulldak` は既設端末の在庫キーと抽選履歴で使われるため維持する。旧名称の設定がある端末では、起動時に表示名だけを更新し、在庫と過去の抽選記録は変更しない。
 - 協賛特別賞内の3景品は同格。演出（tier）も同じ。
 
 ## 2. くじの方式
@@ -83,7 +84,7 @@
 
 | store | keyPath | 内容 |
 |---|---|---|
-| meta | `key` | `{key:'config', value:{...}}`, `{key:'activeDayId'}`, `{key:'pendingDrawId'}`, `{key:'drawSeq'}`, `{key:'lastBackupAt'}`, `{key:'schemaVersion'}` |
+| meta | `key` | `{key:'config', value:{...}}`, `{key:'activeDayId'}`, `{key:'pendingDrawId'}`, `{key:'drawSeq'}`, `{key:'lastBackupAt'}`, `{key:'schemaVersion'}`, 景品名移行済みの記録 |
 | inventory | `key` (`${dayId}:${prizeId}`) | `{key, dayId, prizeId, initial, remaining}` |
 | draws | `id` | `{id, seq, label, eventId, dayId, kind:'student'|'guest', studentId?, survey?, prizeId, categoryId, tier, prizeName, categoryName, drawnAt, confirmedAt|null}` |
 | students | `studentId` | `{studentId, drawId, at}` |
@@ -93,6 +94,7 @@
 - バックアップ検証（`validateBackup`）：`survey` が有っても無くても受理。有る場合は「一般の抽選・`age` が文字列・`triggers` が文字列の配列（ラベルは任意）」だけを見る。選択肢の id が後で編集・削除されても、古いバックアップを拒否しない。
 - `label` は `1-0042` 形式（日番号-日内連番）。
 - 結果表示に必要な名称は draw に**スナップショット**として保存（後で設定名が変わっても履歴が変わらない）。
+- カムジャ麺への表示名移行は `meta` の `migration:gamja-prize-name-v1` で一度だけ行い、移行後のスタッフによる名称編集を上書きしない。
 - config: `{schemaVersion:1, eventId, eventName, days:[{id:'day1',label:'1日目'},{id:'day2',label:'2日目'}], categories:[{id,name,tier}], prizes:[{id,categoryId,name,countUnknown}], studentIdRule:{charset:'digits'|'alnum', minLength, maxLength}, pinHash, sound:{enabled, volume}}`
 - データ形式の更新で台帳を消さない（onupgradeneeded は追加のみ）。
 

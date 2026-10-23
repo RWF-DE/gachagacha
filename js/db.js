@@ -101,6 +101,7 @@ function whenAll(reqs, cb) {
 const metaMap = (rows) => Object.fromEntries(rows.map((r) => [r.key, r.value]));
 const pad4 = (n) => String(n).padStart(4, '0');
 const addLog = (tx, type, detail) => tx.objectStore('logs').add({ at: Date.now(), type, detail: detail ?? null });
+const GAMJA_PRIZE_NAME_MIGRATION = 'migration:gamja-prize-name-v1';
 
 // ---------- 永続化 ----------
 export async function requestPersist() {
@@ -119,6 +120,30 @@ export async function getMeta(key) {
 
 export async function getConfig() {
   return (await getMeta('config')) ?? null;
+}
+
+/**
+ * 既設端末の景品設定に残る旧名称を更新する。
+ * inventory のキーと抽選履歴は prizeId を使うため id は変えず、在庫と過去の記録を保つ。
+ */
+export function migrateGamjaPrizeName() {
+  return runTx(['meta', 'logs'], 'readwrite', (tx, ok) => {
+    const meta = tx.objectStore('meta');
+    const reqConfig = meta.get('config');
+    const reqMigration = meta.get(GAMJA_PRIZE_NAME_MIGRATION);
+    whenAll([reqConfig, reqMigration], () => {
+      const config = reqConfig.result?.value;
+      if (!config || reqMigration.result?.value === true) return ok(false);
+      const prize = config?.prizes?.find((p) => p.id === 'bulldak' && p.name === 'ブルダック炒め麺');
+      if (prize) {
+        prize.name = 'カムジャ麺';
+        meta.put({ key: 'config', value: config });
+        addLog(tx, 'prize-name-migration', { prizeId: 'bulldak', from: 'ブルダック炒め麺', to: prize.name });
+      }
+      meta.put({ key: GAMJA_PRIZE_NAME_MIGRATION, value: true });
+      ok(!!prize);
+    });
+  });
 }
 
 export async function isSetUp() {
