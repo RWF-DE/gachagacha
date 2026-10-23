@@ -101,6 +101,7 @@ function whenAll(reqs, cb) {
 const metaMap = (rows) => Object.fromEntries(rows.map((r) => [r.key, r.value]));
 const pad4 = (n) => String(n).padStart(4, '0');
 const addLog = (tx, type, detail) => tx.objectStore('logs').add({ at: Date.now(), type, detail: detail ?? null });
+const GAMJA_PRIZE_NAME_MIGRATION = 'migration:gamja-prize-name-v1';
 
 // ---------- 永続化 ----------
 export async function requestPersist() {
@@ -128,16 +129,20 @@ export async function getConfig() {
 export function migrateGamjaPrizeName() {
   return runTx(['meta', 'logs'], 'readwrite', (tx, ok) => {
     const meta = tx.objectStore('meta');
-    const req = meta.get('config');
-    req.onsuccess = () => {
-      const config = req.result?.value;
+    const reqConfig = meta.get('config');
+    const reqMigration = meta.get(GAMJA_PRIZE_NAME_MIGRATION);
+    whenAll([reqConfig, reqMigration], () => {
+      const config = reqConfig.result?.value;
+      if (!config || reqMigration.result?.value === true) return ok(false);
       const prize = config?.prizes?.find((p) => p.id === 'bulldak' && p.name === 'ブルダック炒め麺');
-      if (!prize) return ok(false);
-      prize.name = 'カムジャ麺';
-      meta.put({ key: 'config', value: config });
-      addLog(tx, 'prize-name-migration', { prizeId: 'bulldak', from: 'ブルダック炒め麺', to: prize.name });
-      ok(true);
-    };
+      if (prize) {
+        prize.name = 'カムジャ麺';
+        meta.put({ key: 'config', value: config });
+        addLog(tx, 'prize-name-migration', { prizeId: 'bulldak', from: 'ブルダック炒め麺', to: prize.name });
+      }
+      meta.put({ key: GAMJA_PRIZE_NAME_MIGRATION, value: true });
+      ok(!!prize);
+    });
   });
 }
 

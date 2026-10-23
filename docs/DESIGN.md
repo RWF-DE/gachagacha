@@ -84,7 +84,7 @@
 
 | store | keyPath | 内容 |
 |---|---|---|
-| meta | `key` | `{key:'config', value:{...}}`, `{key:'activeDayId'}`, `{key:'pendingDrawId'}`, `{key:'drawSeq'}`, `{key:'lastBackupAt'}`, `{key:'schemaVersion'}` |
+| meta | `key` | `{key:'config', value:{...}}`, `{key:'activeDayId'}`, `{key:'pendingDrawId'}`, `{key:'drawSeq'}`, `{key:'lastBackupAt'}`, `{key:'schemaVersion'}`, 景品名移行済みの記録 |
 | inventory | `key` (`${dayId}:${prizeId}`) | `{key, dayId, prizeId, initial, remaining}` |
 | draws | `id` | `{id, seq, label, eventId, dayId, kind:'student'|'guest', studentId?, survey?, prizeId, categoryId, tier, prizeName, categoryName, drawnAt, confirmedAt|null}` |
 | students | `studentId` | `{studentId, drawId, at}` |
@@ -94,6 +94,7 @@
 - バックアップ検証（`validateBackup`）：`survey` が有っても無くても受理。有る場合は「一般の抽選・`age` が文字列・`triggers` が文字列の配列（ラベルは任意）」だけを見る。選択肢の id が後で編集・削除されても、古いバックアップを拒否しない。
 - `label` は `1-0042` 形式（日番号-日内連番）。
 - 結果表示に必要な名称は draw に**スナップショット**として保存（後で設定名が変わっても履歴が変わらない）。
+- カムジャ麺への表示名移行は `meta` の `migration:gamja-prize-name-v1` で一度だけ行い、移行後のスタッフによる名称編集を上書きしない。
 - config: `{schemaVersion:1, eventId, eventName, days:[{id:'day1',label:'1日目'},{id:'day2',label:'2日目'}], categories:[{id,name,tier}], prizes:[{id,categoryId,name,countUnknown}], studentIdRule:{charset:'digits'|'alnum', minLength, maxLength}, pinHash, sound:{enabled, volume}}`
 - データ形式の更新で台帳を消さない（onupgradeneeded は追加のみ）。
 
