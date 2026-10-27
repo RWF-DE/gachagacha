@@ -106,7 +106,7 @@
 /* ================= 区分選択（choose） ================= */
 .scr-choose { color: var(--ink); }
 /* 巨大な「よーそろがちゃ」（Dela Gothic One・群青に赤の版ズレ影）。横置きは1行で、左右の端は旧ワードマークと同じ（x=33〜1104）。
-   各字は .c（overflow:hidden の窓）の中の .ci が迫り上がる。--k = 何文字目か（登場の遅延）、--g = 右隣との字間（js/screens.js の YO_GAP）。
+   各字は .c（overflow:hidden の窓）の中の .ci が迫り上がる。--k = 何文字目か（登場の遅延）、--g = 右隣との字間（brand.wordmark.gaps。js/templates.js）。
    窓の右と下の 8px は版ズレの影ぶん（影も下端の ゃ・が も窓で切れない）。縦置きだけ「よーそろ」/「がちゃ」の2行（.ln）。 */
 .scr-choose .yo { position: absolute; left: 26px; top: calc(62px + var(--ex) * .15); z-index: 2; margin: 0; font-family: var(--f-disp); font-weight: 400; font-size: 164px; line-height: 1; color: var(--main); white-space: nowrap; }
 .scr-choose .yo .ln { display: inline; }
