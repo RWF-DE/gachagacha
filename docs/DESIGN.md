@@ -3,6 +3,9 @@
 本部テント（屋外・Wi-Fi不安定）に置いた iPad 1台で、来場者が無料の景品抽選をする。
 **完全オフラインで iPad 内に完結**する PWA（静的 HTML/CSS/JS + manifest + Service Worker + IndexedDB）。
 
+ほかのイベントでも使えるよう、名前・配色・回すもの・参加の方法・アンケート・景品と日程は設定（config v2）にしてある。設定の形・規則・移行は `docs/CUSTOMIZE.md`。
+この文書は、既定の設定（電波祭2026）での動きと、設定に関わらず変えない仕組み（抽選・保存・オフライン・性能）を書く。
+
 - ビルド工程なし・フレームワークなし・外部CDNなし。ES Modules（`<script type="module">`）。
 - 画像は原則インライン SVG / CSS。効果音は Web Audio で合成（音声ファイルなし）。フォントは自前ホスト（`fonts/*.woff2`、サブセット済み・OFL）で、iPad では Hiragino Sans を代替にする。
 - すべて**相対パス**。`https://denpasai.jp/gacha/` でも `https://<user>.github.io/gachagacha/` でも動くこと。
@@ -20,7 +23,8 @@
 | sticker | ステッカー賞 | 茨城コラボステッカー | 0（未定） | 0（未定） |
 | sticker | ステッカー賞 | 電波祭ステッカー | 100 | 100 |
 
-- 上記は `js/config.js` の初期値。賞の名称・景品名・日別本数はスタッフ画面で編集可能。
+- 賞・景品・開催日はイベントごとに設定できる（賞 1〜12・景品 1〜40・開催日 1〜7。形と規則は `docs/CUSTOMIZE.md` §2・§4.2）。tier は演出の系統であって順位ではない。
+- 上の表は電波祭2026のテンプレート（`js/templates.js` の `denpasai-2026`）の値で、`js/config.js createDefaultConfig()` が返す既定の設定と同じ。賞の名称・景品名・日別本数はスタッフ画面で編集可能。
   「未定」の景品は `countUnknown: true` を持ち、スタッフ画面で警告表示する。
 - カムジャ麺が届かない場合は、スタッフ画面で残数を 0 にする。
 - 景品 ID `bulldak` は既設端末の在庫キーと抽選履歴で使われるため維持する。旧名称の設定がある端末では、起動時に表示名だけを更新し、在庫と過去の抽選記録は変更しない。
@@ -28,18 +32,22 @@
 
 ## 2. くじの方式
 
-- **日ごとに独立した「引いたら戻さないくじ箱」**。両日の初期本数を同じにすることで「1日目・2日目でスポンサー賞が出る確率は等しい」を満たす。
+- **日ごとに独立した「引いたら戻さないくじ箱」**。電波祭2026は両日の初期本数を同じにして「1日目・2日目でスポンサー賞が出る確率は等しい」を満たす（開催日が何日でも、箱は日ごとに独立）。
 - 全景品が当たりくじ（はずれ無し・ステッカー賞が実質参加賞）。総口数 = その日の残数合計。
 - ある景品が出る確率 = その景品の残数 / その日の残数合計。残数0は対象外。
 - 箱が空になったらその日の抽選は終了（新規抽選不可）。黙ってくじを追加しない。スタッフが明示的に残数を足すのはOK（ログに残す）。
+  抽選が始まった日に景品を足すと、その日の本数は 0 から始まる（本数は在庫の ±調整で入れる。`docs/CUSTOMIZE.md` §4.2）。
 - 乱数は `crypto.getRandomValues` + 棄却サンプリング（偏りなし）。演出・指の速度・タップ時刻・属性・学籍番号で結果を変えない。
 - 1日目の残りを2日目に自動で繰り越さない（確率が変わるため）。必要ならスタッフが手動調整。
 
 ## 3. 参加制限
 
-- 本校学生：学籍番号の重複で参加済みを判定。**電波祭全体（両日）で1回**。
+- **参加の方法**（`config.entry`）：学生（学籍番号）と一般の方を、それぞれ使う・使わないで選べる（題名・説明の文言も設定）。少なくとも一方は有効で、既定は両方（両方無効の設定は、読むときに両方有効へ戻す）。使わない方法の抽選は `db.draw` が `BAD_REQUEST`（detail `entry`）で断る。1つだけにしても区分選択の画面は出る（行が1つになる）。以下は両方使う既定での規則。
+- 本校学生：学籍番号の重複で参加済みを判定。**イベント全体（全日程。電波祭2026は両日）で1回**。
 - 本校学生以外：**運用ルールで1人1回**。スタッフが景品を渡した後、来場者のパンフレットまたは手に「済」のスタンプ／シールを付けて管理する（アプリでの重複判定はしない）。氏名・メール・電話などは一切収集しない。ダミー番号も割り当てない。一般の方の結果画面には、OKボタンの上にスタッフ向けの注意書き「印を付けてからOK」を表示する。
-- **本校学生以外の方は、抽選の前に2問のアンケート**（Q1 年齢・Q2 来場のきっかけ）に答える。目的は ①使い回し・連続参加の心理的な歯止め ②協賛企業（学習塾など）へ来場者層を説明するデータ。学生は対象外（アンケートを出さない・`survey` を持たない）。個人を特定する項目（氏名・連絡先・自由記述）は設けない。回答は抽選の保存まで**メモリにだけ**保持し、途中でやめたら何も残らない。
+- **本校学生以外の方は、抽選の前に2問のアンケート**（Q1 年齢・Q2 来場のきっかけ）に答える（アンケートを使う設定。既定）。目的は ①使い回し・連続参加の心理的な歯止め ②協賛企業（学習塾など）へ来場者層を説明するデータ。学生は対象外（アンケートを出さない・`survey` を持たない）。個人を特定する項目（氏名・連絡先・自由記述）は設けない。回答は抽選の保存まで**メモリにだけ**保持し、途中でやめたら何も残らない。
+  - アンケートを使わない設定（`config.survey.enabled: false`）では、一般の方は区分選択からそのまま抽選へ進み、`survey` を持たない（`survey` を付けた抽選は `BAD_REQUEST`）。
+  - 設問の見出し・短い名前（集計の見出し）・選択肢・注意書きは `config.survey`。Q1 は単一選択・Q2 は複数選択（1つ以上）という形は固定で、選択肢は Q1 が 2〜12個・Q2 が 2〜10個。保存先のフィールド名は、設問の中身が変わっても `age`（Q1）・`triggers`（Q2）のまま。
 - 学籍番号ルール（スタッフ画面で変更可）：既定は「数字のみ・7桁ちょうど」。全角数字→半角、前後空白除去で正規化。文字列で保存（先頭ゼロ保持）。
 - 入力時点では「形式チェック」と「参加済みか（読み取りのみ）」だけ。使用済み登録は抽選トランザクション内で行う。
 - 学籍番号を URL・console・エラーメッセージに出さない。
@@ -48,22 +56,26 @@
 
 ```
 [待機/区分選択] ─学生→ [学籍番号テンキー] ─OK→ [舵輪で抽選]
-       └─学生以外→ [アンケート Q1 年齢] → [Q2 きっかけ] ─次へ→ [舵輪で抽選]
+       ├─学生以外→ [アンケート Q1 年齢] → [Q2 きっかけ] ─次へ→ [舵輪で抽選]
+       └─学生以外（アンケートを使わない設定）──────────→ [舵輪で抽選]
 [舵輪で抽選] ─回す→ (DB保存完了) → [演出] → [結果（自動で閉じない）]
 [結果] ─スタッフ「お渡し済み・OK」1秒長押し→ [待機]
 [箱が空] → [本日の抽選は終了しました]
 ```
 
-1. **区分選択**：「本校の学生」「本校学生以外の方」の大ボタン。「おひとり1回・参加無料」。
+区分選択に並ぶのは、有効な参加の方法だけ（§3）。「舵輪」は既定の回すもの（モチーフ）で、設定でガチャ玉・ガラポン・歯車・ルーレット・風車・さくらに替えられ、画面の文言は呼び名から作る（`docs/CUSTOMIZE.md` §6）。以下の「舵輪」は、設定中の回すものを指す。
+
+1. **区分選択**：有効な参加の方法の大ボタン（既定は「本校の学生」「本校学生以外の方」。題名・説明は `config.entry`）。1つだけなら行は1つ（群青の行・番号 01）。帯（既定「おひとり1回・参加無料」）は `config.brand.tagline` で、空なら出さない。
 2. **学籍番号**：大きな表示欄、テンキー（0-9・1文字削除・戻る・決定）。注意書き「学籍番号は参加済みの確認だけに使います。」
    参加済みなら「この学籍番号では参加済みです。スタッフに確認してください」（氏名等は表示しない）。
-3. **アンケート（学生以外のみ）**：段階表示「アンケート 1/2」「2/2」と、注意書き「回答は個人が分からない形で集計し、電波祭の運営と協賛企業への来場者層の説明に使います。」を両画面に出す。
+3. **アンケート（学生以外のみ。アンケートを使う設定のとき）**：段階表示「アンケート 1/2」「2/2」と、注意書き「回答は個人が分からない形で集計し、電波祭の運営と協賛企業への来場者層の説明に使います。」を両画面に出す（注意書きが空の設定では出さない）。以下の設問と選択肢は電波祭2026の既定で、`config.survey.q1` / `q2` で変えられる。
    - **Q1「年齢を教えてください」**（単一選択・必須）：未就学児／小学生／中学生／高校生／大学生・専門学生／20代／30代／40代／50代／60代以上。選ぶと反転＋✓で示し、約250ms後に自動で Q2 へ。横置き 5×2・縦置き 2×5。
    - **Q2「電波祭に来場したきっかけを教えてください。（複数選択可）」**（複数選択・1つ以上必須）：家族・友人・知人からの紹介／SNS（Instagram・Xなど）／ホームページ／ポスター・チラシ／毎年参加している／イベント内容に興味があった／熊本高専に興味があった／その他（自由記述なし）。「次へ（舵輪へ）」は1つ以上選ぶまで押せない。2列×4行。
-   - 選択肢は `js/config.js` の `SURVEY_AGES` / `SURVEY_TRIGGERS`（安定した `id` と表示名 `label`）。文言の変更・追加はコードだけで済む。
-   - 戻る：Q1→区分選択（回答は破棄）／Q2→Q1（回答は残る）／舵輪→Q2（一般の方。回答は残る）。放置のアイドル復帰（`IDLE_RESET_MS`）は学籍番号・アンケート・舵輪のすべてに効き、待機へ戻ると回答は消える。
-4. **舵輪で抽選**：「舵輪を回して、お宝を引こう！」。舵輪をドラッグで累積180°以上回す、または舵輪タップ、または「タップでまわす」ボタン、または Enter/Space。どれでも1回だけ発火。戻るボタンあり（抽選前のみ）。入力した瞬間から舵輪が空転し（待ち時間の演出）、保存が完了したらワイプ演出に入る。
-5. **演出**：保存完了を 0 秒として、スタッフのボタンが出るまで ステッカー賞 約3秒／レアステッカー賞 約4秒／協賛特別賞 約5.5秒。reduced-motion・`?fast=1` は 1秒未満（カットとフェードだけ）。
+   - 並べ方は選択肢の数から決まる：Q1 は横置きで5個まで1行・それより多ければ2行、縦置きは2列。Q2 は2列×⌈個数÷2⌉行。10個・8個なら上の 5×2・2×5・2×4 のまま。「次へ（○○へ）」の○○は回すものの呼び名。
+   - 選択肢は `config.survey.q1.options` / `q2.options`（安定した `id` と表示名 `label`）。既定は `js/templates.js` の `SURVEY_AGES` / `SURVEY_TRIGGERS`（`js/config.js` が再エクスポート）。文言の変更・追加・削除は設定で行い、`id` は変えない。
+   - 戻る：Q1→区分選択（回答は破棄）／Q2→Q1（回答は残る）／舵輪→Q2（一般の方。回答は残る）／舵輪→区分選択（学生と、アンケートを使わない設定の一般の方）。放置のアイドル復帰（`IDLE_RESET_MS`）は学籍番号・アンケート・舵輪のすべてに効き、待機へ戻ると回答は消える。
+4. **舵輪で抽選**：「舵輪を回して、お宝を引こう！」（`{回すものの呼び名}を回して、{景品の呼び方}を引こう！`。呼び方は `config.brand.prizeWord`）。舵輪をドラッグで累積180°以上回す、または舵輪タップ、または「タップでまわす」ボタン、または Enter/Space。どれでも1回だけ発火。戻るボタンあり（抽選前のみ）。入力した瞬間から舵輪が空転し（待ち時間の演出）、保存が完了したらワイプ演出に入る。
+5. **演出**：保存完了を 0 秒として、スタッフのボタンが出るまで ステッカー賞 約3秒／レアステッカー賞 約4秒／協賛特別賞 約5.5秒（賞の名称は電波祭2026のもの。長さは系統 tier の `sticker` / `rare` / `sponsor` で決まる）。reduced-motion・`?fast=1` は 1秒未満（カットとフェードだけ）。
 6. **結果**：賞の名称（大）・景品名（大）・抽選番号（小）「この画面のままスタッフにお見せください」。スタッフが「お渡し済み・OK」を**約1秒長押し**（進捗リング表示）→ 確認済み保存 → 待機へ。
 
 起動時に未確認の抽選があれば、その抽選の結果を（短い演出で）再表示し、新規抽選を許可しない。
@@ -71,11 +83,14 @@
 ## 5. 抽選と保存の順序（最重要）
 
 1. 抽選開始は1回だけ受け付ける（ガード）。開始後は戻る・二度押し無効。
-   一般の方の `db.draw({kind:'guest', survey:{v:1, age, triggers}})` は、`survey` を検証してから（`js/survey.js normalizeSurvey`。年齢は既知の id 1つ、きっかけは既知 id の重複なし・1つ以上）トランザクションを開く。不正・欠落は `BAD_REQUEST`。学生の抽選に `survey` を付けても `BAD_REQUEST`。
-2. IndexedDB の**単一 readwrite トランザクション**（stores: meta, inventory, draws, students）内で：
-   未確認抽選が無いこと／学生なら未参加であること／当日箱に残りがあることを再確認。
+   `db.draw({kind, studentId?, survey?})` がトランザクションを開く前に見るのは、`kind` が `student` / `guest` であることと学籍番号の正規化だけ。参加の方法・アンケートの検証はトランザクションの中で行う（次の 2.）。
+2. IndexedDB の**単一 readwrite トランザクション**（stores: meta, inventory, draws, students）内で、meta と inventory（学生なら students も）を読み終えた時点の**同期処理**の中で判定する（追加の `await` なし）。config は `normalizeConfig` を通した v2（保存が v1 のままでも同じ）。判定の順：
+   - 参加の方法が有効か（`config.entry[kind].enabled`。違えば `BAD_REQUEST`・detail `entry`）。
+   - 一般の方：`config.survey.enabled` なら `survey {v:1, age, triggers}` を検証する（`js/survey.js normalizeSurvey` に `q1.options` / `q2.options` を渡す。年齢は既知の id 1つ、きっかけは既知 id の重複なし・1つ以上。不正・欠落は `BAD_REQUEST`・detail `survey`）。アンケートを使わない設定の一般の方や学生に `survey` が付いていても `BAD_REQUEST`。
+   - 未確認抽選が無いこと／当日が開催日に含まれること／学生なら学籍番号の形式（`config.studentIdRule`）と未参加／当日箱に残りがあること。
+   どれかが違えば何も書かずに中止する（検証の失敗は、まだ書いていない段階の `abort`）。
 3. 残数から1本を確定（`pickPrize`）。
-4. 残数 -1、抽選履歴追加（一般の方は `survey` も同じレコードに載せる）、学籍番号の使用済み登録（学生のみ）、`meta.pendingDrawId` を同じトランザクションで書く。
+4. 残数 -1、抽選履歴追加（アンケートを使う設定の一般の方は `survey` も同じレコードに載せる）、学籍番号の使用済み登録（学生のみ）、`meta.pendingDrawId` を同じトランザクションで書く。
 5. **transaction の `complete` を待つ**（個々の request success ではなく）。トランザクション中に `await` で IDB 以外の非同期処理を挟まない。
 6. 成功後に演出開始。失敗時は景品を表示せず、エラー画面「保存できませんでした。スタッフを呼んでください」。
 7. スタッフOKは同じ抽選IDの `confirmedAt` を更新し `pendingDrawId` を消すだけ。再抽選・再減算しない（冪等）。
@@ -86,17 +101,22 @@
 |---|---|---|
 | meta | `key` | `{key:'config', value:{...}}`, `{key:'activeDayId'}`, `{key:'pendingDrawId'}`, `{key:'drawSeq'}`, `{key:'lastBackupAt'}`, `{key:'schemaVersion'}`, 景品名移行済みの記録 |
 | inventory | `key` (`${dayId}:${prizeId}`) | `{key, dayId, prizeId, initial, remaining}` |
-| draws | `id` | `{id, seq, label, eventId, dayId, kind:'student'|'guest', studentId?, survey?, prizeId, categoryId, tier, prizeName, categoryName, drawnAt, confirmedAt|null}` |
+| draws | `id` | `{id, seq, label, eventId, dayId, kind:'student'\|'guest', studentId?, survey?, prizeId, categoryId, tier, prizeName, categoryName, drawnAt, confirmedAt\|null}` |
 | students | `studentId` | `{studentId, drawId, at}` |
-| logs | autoIncrement | `{at, type, detail}`（在庫調整・設定変更・復元・初期化など） |
+| logs | autoIncrement | `{at, type, detail}`（在庫調整・設定変更・景品/日程の変更 `box-settings`・設定ファイルの読み込み `profile-import`・復元・初期化など） |
 
 - **`survey`（一般の方の抽選だけ・任意）**：`{v:1, age:'<id>', triggers:['<id>',…], ageLabel:'<保存時の表示名>', triggerLabels:['<保存時の表示名>',…]}`。`triggers` は選択肢の並び順。ラベルは `categoryName` / `prizeName` と同じ「スナップショット」で、後で選択肢の文言を直しても履歴は変わらない。**IndexedDB のバージョン・ストアは変えない**（`draws` レコードのフィールド追加だけ。version 1 のままの本番データにそのまま乗る）。学生の抽選には付けない。`survey` が無い一般の抽選（アンケート導入前の履歴・古いバックアップ）は集計・CSV で「未回答」。
 - バックアップ検証（`validateBackup`）：`survey` が有っても無くても受理。有る場合は「一般の抽選・`age` が文字列・`triggers` が文字列の配列（ラベルは任意）」だけを見る。選択肢の id が後で編集・削除されても、古いバックアップを拒否しない。
-- `label` は `1-0042` 形式（日番号-日内連番）。
+- `label` は `1-0042` 形式（日番号-日内連番）。日番号は `config.days` の並び順（1始まり）で決まるので、開催日は末尾への追加と末尾からの削除だけができる。
 - 結果表示に必要な名称は draw に**スナップショット**として保存（後で設定名が変わっても履歴が変わらない）。
-- カムジャ麺への表示名移行は `meta` の `migration:gamja-prize-name-v1` で一度だけ行い、移行後のスタッフによる名称編集を上書きしない。
-- config: `{schemaVersion:1, eventId, eventName, days:[{id:'day1',label:'1日目'},{id:'day2',label:'2日目'}], categories:[{id,name,tier}], prizes:[{id,categoryId,name,countUnknown}], studentIdRule:{charset:'digits'|'alnum', minLength, maxLength}, pinHash, sound:{enabled, volume}}`
-- データ形式の更新で台帳を消さない（onupgradeneeded は追加のみ）。
+- カムジャ麺への表示名移行は `meta` の `migration:gamja-prize-name-v1` で一度だけ行い、移行後のスタッフによる名称編集を上書きしない（起動時の `refresh()` が、`getConfig` の前に呼ぶ）。
+- **config は v2**（`meta.config`。`schemaVersion: 2`）。フィールドの表・上限・制約は `docs/CUSTOMIZE.md` §2。要点：`eventId`（抽選記録に写る）・`eventName`／`brand`（ガチャ名・欧文名・ロゴ横の和文と欧文・帯の文言・景品の呼び方・手詰めのワードマーク）／`theme`（プリセット id と任意のカスタム4色）／`motif`（回すものの id）／`entry`（学生・一般の方それぞれの 有効・題名・説明）／`survey`（有効・注意書き・Q1 と Q2 の 見出し・短い名前・選択肢）／`days`・`categories`（`{id, name, tier, latin}`）・`prizes`（`{id, categoryId, name, countUnknown}`）／`studentIdRule:{charset:'digits'|'alnum', minLength, maxLength}`／`pinHash`／`sound:{enabled, volume}`。電波祭2026の値は `js/templates.js`。
+- **読むときに正規化する**（`js/profile.js normalizeConfig(raw)`）：v1（`schemaVersion` が 2 でないもの）・v2・壊れた値のどれからでも完全な v2 を返す（純粋関数・べき等・入力は変えない）。足りない値は電波祭2026のテンプレートで補う（v1 の賞に欧文が無ければ SPONSOR AWARD / RARE STICKER / STICKER）。文字列は前後の空白を除いて上限で切る。既設端末の v1 データは見た目も動きもそのまま。`db.getConfig()` と、`db.draw()` のトランザクション内の読み出しがこれを通す。ディスクの中身は次に保存するまで書き換えない（`initialize` / `saveConfig` / `saveBoxSettings` / `importProfile` / `importAll` は正規化してから書く）。
+- `db.saveConfig(config)` が書くのは、効果音・学籍番号ルール・PIN・名前・配色・回すもの・参加の方法・アンケートなどの「設定」だけ。**開催日・賞・景品は保存済みのまま変えない**（在庫・抽選記録と対応しているため。渡された config の `days` / `categories` / `prizes` は使わず、保存済みを先に正規化して引き継ぐ。何も保存されていなければ渡された config を保存する）。構造を変えられるのは `initialize` / `saveBoxSettings`（旧い入力の `savePrizeSettings` も同じ判定）/ `importProfile` / `importAll` だけ。
+- `db.saveBoxSettings({days, categories, prizes, initials})`：開催日・賞・景品の一覧を**まるごと**渡す。今の config・在庫・抽選数と比べた判定は純粋関数 `planBoxSettings`（`js/profile.js`）で、追加・変更・削除と在庫の行の作成・削除を1つの readwrite トランザクション（meta, inventory, draws, logs）で行い、差分を logs の `box-settings` に残す。成功は新しい config。主な規則（`docs/CUSTOMIZE.md` §4.2）：抽選のある景品は消せない（`PRIZE_HAS_DRAWS`）／抽選が始まった日の初期本数は変えられず、その日に足す景品は 0 本から（`DAY_HAS_DRAWS`）／開催日は名前の変更・末尾への追加・末尾からの削除だけ（並べ替え・途中の削除は `BAD_REQUEST`・detail `days-order`。抽選のあった日・開催中の日を消すと `DAY_LOCKED`）／賞は景品が無くなってから消す。失敗したら何も書かない。
+- **設定ファイル**（`kind:'profile'`）：イベント設定だけの JSON（抽選履歴・参加済み番号・PIN・効果音を含まない）。`{app:'yosoro-gacha', kind:'profile', profileVersion:1, exportedAt, profile:{config(pinHash・sound なし), initials:{dayId:{prizeId:n}}}}`。`db.exportProfileFile()` が今の config と在庫の**初期本数**（残数ではない）から作り、`validateProfileFile` が検証する（別のファイル・新しい版・壊れた中身は日本語の理由つき）。`db.importProfile(file)` は**抽選履歴が1件も無いときだけ**読み込む（あれば `HAS_DRAWS`・何も書かない）。PIN と効果音は今のものを残し、在庫を初期本数で作り直し（残数＝初期本数・調整 0）、開催日を最初の日に、抽選の連番をリセットし、最終バックアップの時刻を消して、logs に `profile-import` を残す。
+- **バックアップ**（JSON）は `schemaVersion: 2`（`config` は v2 に正規化して入る）。`validateBackup` は 1 と 2 を受け付け、v1 のバックアップは復元時に正規化して書く（電波祭2026の設定になる）。3 以上は「新しいバージョンのバックアップです」で断る。設定ファイルを渡されたときは「これは設定ファイルです…」と、設定ファイルの読み込みへ案内して断る（逆に設定ファイルの読み込みにバックアップを渡したときも、バックアップの復元へ案内する）。config は正規化したうえで、開催日・賞・景品の id の整合（id があり重複しない・景品の賞がある）と、在庫・抽選・開催日の対応を見る。
+- データ形式の更新で台帳を消さない（onupgradeneeded は追加のみ）。IndexedDB の version・ストアは変えず、形式の更新は「フィールドの追加」と「読むときの正規化」だけで行う。
 
 ## 7. スタッフ画面
 
@@ -114,35 +134,46 @@
   - 全初期化：全データ削除。
   - アプリ更新：待機中の新しいSWがあれば「更新を適用」（未確認抽選が無い時のみ）。
 
+別のイベントで使うための拡張として、スタッフ画面に「景品・日程」「イベント」のタブ、アンケートの質問・選択肢の編集、設定ファイルの書き出し・読み込みが加わる（詳細は `docs/CUSTOMIZE.md` §8）。
+
 ## 8. オフライン（PWA）
 
 - `sw.js` はアプリと同じディレクトリに置き scope はそのディレクトリ。キャッシュ名 `yosoro-gacha-v<N>`。activate 時は `yosoro-gacha-` 接頭辞の旧キャッシュのみ削除（他サイトのキャッシュに触らない）。
 - 全ファイルを install で precache。fetch は cache-first、navigate は index.html を返す。
+- precache の一覧 `PRECACHE`（`sw.js` の冒頭）には、新しいモジュール（`js/profile.js`・`js/templates.js`・`js/theme.js`・`js/motifs.js`）も入っている。**`js/`・`css/`・`fonts/` にファイルを足したら `PRECACHE` にも足し、`VERSION` を上げる**（`VERSION` を上げないと古いキャッシュが使われ続ける）。同じ項目を2回書かない：`Cache.addAll` は同じ URL のリクエストが重なると失敗し、install ごと落ちてオフラインで動かなくなる。
+- この3点（一覧の全項目が実在する・重複がない・`js/`・`css/`・`fonts/` の実行時ファイルが全部載っている）は、公開前に CI（`.github/workflows/pages.yml`）が確かめる。`.txt`（`fonts/OFL-*.txt` のライセンス文書）はアプリが読まないので対象外。
 - **本番中に強制リロードしない**：`skipWaiting` は自動で呼ばず、スタッフ画面からのメッセージでのみ。
-- `manifest.webmanifest`：`display: standalone`, `orientation: landscape`, `start_url: ./`, `scope: ./`、アイコン 192/512 PNG + `apple-touch-icon` 180 PNG。
+- `manifest.webmanifest`：`display: standalone`, `orientation: landscape`, `start_url: ./`, `scope: ./`、アイコン 192/512 PNG + `apple-touch-icon` 180 PNG。アイコンは `icons/icon.svg` から `dev/render-icons.mjs` で書き出す。別のイベント専用の配置では、`--motif` / `--theme` で回すものと配色を選んで icon.svg ごと作り直せる（使い方はそのファイルの冒頭）。manifest の name・色と `index.html` の初期の title・theme-color は静的なので、配置ごとに手で合わせる。
 - iPad 対策：ダブルタップズーム無効（`touch-action: manipulation`）、ピンチズーム無効、オーバースクロール無効、長押しメニュー/文字選択無効、ノッチ安全域対応。
 
 ## 9. モジュール構成
 
 ```
 index.html               … 骨組み・meta・フォント preload・SW登録。#stage（ポスター全体）と #admin-root
-css/tokens.css           … 色・フォント・イージングのトークン、@font-face
+css/tokens.css           … 色（4つの役割と派生色）・フォント・イージングのトークン、@font-face
 css/app.css              … リセット・iPad対策・ボタン・テンキー・ダイアログ・スタッフ画面
 css/poster.css           … プレイヤー画面すべて（各画面・シャッター・タイトルカード・結果・演出タイムライン）
 fonts/*.woff2, OFL-*.txt … Dela Gothic One / Zen Kaku Gothic New 700 / Archivo 900 / DM Mono 500（dev/build-fonts.py で生成）
-js/config.js, lottery.js, db.js  … 既定設定・純粋関数・IndexedDB（演出と無関係）
-js/app.js                … 画面状態機械・抽選フロー（保存→演出）・スタッフOK・起動復旧・アイドル復帰
-js/screens.js            … 区分選択／学籍番号／アンケート（Q1・Q2）／情報画面（終了・エラー・読込失敗）の組み立て
-js/survey.js             … アンケートの検証・正規化（ラベルのスナップショット）・集計（純粋関数。DB・DOMに触れない）
-js/stage.js              … 舵輪の画面・空転（Web Animations＝コンポジタ駆動）・演出（シャッター／タイトルカード）・結果カード・拡縮
-js/poster.js             … 舵輪SVG・ヘッダ帯・拡縮（fitStage。画面の大きさが変わらなければ何も書かない）・紙の粒子・ハーフトーン(canvas)・文字の割り付け
+js/templates.js          … イベントのテンプレート（denpasai-2026 / generic）・アンケートの既定の選択肢・賞の欧文の既定（データだけ。何も import しない）
+js/profile.js            … config v2 の正規化（normalizeConfig）・入力の上限（LIMITS）・景品/日程の変更計画（planBoxSettings）・設定ファイルの書出し/検証・id の採番（純粋関数。DOM・DBに触れない）
+js/theme.js              … 配色プリセット（THEMES 7つ）・resolveTheme・applyTheme（CSS 変数と theme-color）・contrast / contrastReport（applyTheme 以外は DOM に触れない）
+js/motifs.js             … 回すもの（MOTIFS 7つ：図形の svg・呼び名・最初の向き）・getMotif・motifPreviewSvg（DOM に触れない）
+js/config.js, lottery.js, db.js  … 定数と既定の config（テンプレートを正規化したもの）・純粋関数・IndexedDB（演出と無関係）
+js/app.js                … 画面状態機械・抽選フロー（保存→演出）・スタッフOK・起動復旧・アイドル復帰・見た目の設定の反映（applyLook）
+js/screens.js            … 区分選択／学籍番号／アンケート（Q1・Q2）／情報画面（終了・エラー・読込失敗）の組み立てと、文字の収まりの調整（config も DB も知らない）
+js/survey.js             … アンケートの検証・正規化（ラベルのスナップショット）・集計（純粋関数。選択肢は呼び出し側から受ける。DB・DOMに触れない）
+js/stage.js              … 舵輪（設定中の回すもの）の画面・空転（Web Animations＝コンポジタ駆動）・演出（シャッター／タイトルカード）・結果カード・拡縮・回すものと文言の差し替え（setMotif / setBrand）
+js/poster.js             … 回すもののシンボル（defsHtml）・ヘッダ帯（metaHtml・fitHeader）・拡縮（fitStage。画面の大きさが変わらなければ何も書かない）・紙の粒子・ハーフトーン(canvas)・文字の割り付け（splitPhrases・planWordmark・headingSize・emWidth）
 js/perf.js               … ?perf=1 のときだけ出る rAF 間隔の計測表示（実機のカクつき確認用。測るのは主スレッドのフレームだけ。空転はコンポジタなので含まれない）
 js/sound.js              … 効果音（Web Audio 合成）
 js/admin.js, ui.js, util.js … スタッフ画面・共通UI・ユーティリティ
 sw.js, manifest.webmanifest, icons/*
-tests/                   … node:test（lottery・survey）と Playwright E2E
-dev/                     … build-fonts.py（フォント生成）, render-icons.mjs（アイコン書出し）
+tests/                   … node:test（lottery・survey・profile・theme・motifs・layout）と Playwright（db.browser.mjs＝実 IndexedDB での db.js の確認、e2e.mjs＝画面の E2E）
+dev/                     … build-fonts.py（フォント生成）, render-icons.mjs（アイコン書出し。--motif / --theme で別のイベント用の icon.svg も作れる）
 ```
+
+- import の向き（循環させない）：`templates.js` は何も import しない。`profile.js` と `survey.js` は `templates.js` だけ（`survey.js` は `config.js` を import しない）。`config.js` が `templates.js`・`profile.js`・`survey.js` を import し、`db.js` が `config.js`・`lottery.js`・`survey.js`・`profile.js` を import する。`theme.js`・`motifs.js` は何も import しない（`poster.js` が `motifs.js` を import する）。
+- 新しいモジュールを足したら、`sw.js` の `PRECACHE` にも足す（§8。CI が確かめる）。
 
 ### 9.1 app.js ↔ stage.js の境界
 
@@ -158,35 +189,54 @@ stage.showResultStatic(r) // 起動時の復旧：演出なしで結果を表示
 stage.resultActionsEl     // 結果カード内の操作スロット（app.js がスタッフOKボタンを入れる）
 stage.reset()             // 結果を畳んで待機の紙へ（退場が済んでから #stage.playing を外す）
 stage.setDay(text)        // ヘッダの開催日（飾り。残数・確率は出さない）
-// r = { tier:'sponsor'|'rare'|'sticker', categoryName, prizeName, label }
+stage.setMotif(id)        // 回すもの（js/motifs.js）の差し替え。<symbol id="wheel"> の中身だけを替える（ロゴ・待機画面・抽選画面・結果の飾りが追従）。抽選画面の文言と最初の向きは、次に作る wheelScreen から変わる。演出中は呼ばない
+stage.setBrand(brand)     // 文言の差し替え（brand = config.brand の name / nameLatin / eventLabel / eventLatin / prizeWord）。結果カードの「PRIZE」ラベルとスタンプの下の欧文はすぐ、抽選画面・タイトルカードの文言は次に作るときから変わる。演出中は呼ばない
+// r = { tier:'sponsor'|'rare'|'sticker', categoryName, prizeName, label, categoryLatin? }
 ```
 
-- stage は抽選ロジック・DBに一切触れない。app.js は演出の DOM に触らない（`resultActionsEl` と、画面ホスト `#screen-host` への画面の出し入れを除く）。
+- `r.categoryLatin` は、結果のヘッダ中央とタイトルカード（協賛特別賞）に出る賞の欧文。app.js が、抽選記録のスナップショットではなく**今の config から `categoryId` で引いて**渡す（飾りなので。賞が消えている・欧文が空なら系統の既定 `TIER_LATIN`：`SPECIAL PRIZE` / `RARE PRIZE` / `PRIZE`）。渡されなければ stage 内の既定（`SPONSOR AWARD` / `RARE STICKER` / `STICKER`）。
+- `app.js applyLook(config)` が見た目の設定を画面に反映する：`applyTheme(resolveTheme(theme))`（CSS 変数と theme-color）→ `stage.setMotif` → `stage.setBrand` → ロゴ横の文字（`{eventLabel} / {eventLatin}`。片方が空ならもう片方だけ）と `aria-label`（ガチャ名）→ `fitHeader` → `document.title`（`{name}｜{eventName}`）と `apple-mobile-web-app-title`。`refresh()` のたびに、どの画面を出すより前に呼び、スタッフ画面を閉じた直後（未確認の結果を表示中のとき）にも呼ぶ。配色・回すもの・名前が前回と同じなら何もしない（抽選のたびに `<html>` のスタイルを書き直さない）。演出中には呼ばない（§10）。`lookOf(config)` が config から見た目の値を取り出す（足りない項目はテンプレートで補う。正規化済みの config では何も補わない）。`manifest.webmanifest` の name・色と `index.html` の初期の title・theme-color は静的で、配置ごとに書き換える。
+- screens.js は config も DB も知らない。app.js が `brand`（名前・読み・帯・ヘッダ中央の文字）・`entry`（参加の方法の行）・`survey`（Q1・Q2 の見出し・選択肢・注意書き）と、回すものの呼び名（`noun`。アンケートの「次へ（○○へ）」）を渡して組み立てさせる。
+- stage は抽選ロジック・DBに一切触れない。stage は config も知らない（app.js が必要な値だけを渡す）。app.js は演出の DOM に触らない（`resultActionsEl` と、画面ホスト `#screen-host` への画面の出し入れを除く）。
 - 音：stage は `sound.play(name, delayMs, group)` と `sound.cancelScheduled(group)` を呼ぶ（group：`spin`＝空転の刻み音、`reveal`＝演出の音、既定 `default`）。`cancelScheduled` を持たない旧い sound.js では同じ契約を `setTimeout` で代用する。
 - 賞の名称・景品名は draw のスナップショット（スタッフが編集できる）をそのまま使う。コードに名称を埋め込まない。
-- E2E 用フック（data-testid）：`screen-choose|student|survey-age|survey-trigger|wheel|closed|error|fatal`, `choose-student|guest`, `age-<id>`, `trigger-<id>`, `survey-next`, `survey-notice`, `survey-step`, `tenkey-*`, `student-error`, `spin-button`, `wheel`, `back`, `result-card`, `ok-button`, `error-back`, `logo`, `pin-*`, スタッフ画面の各 testid。
+- E2E 用フック（data-testid）：`screen-choose|student|survey-age|survey-trigger|wheel|closed|error|fatal`, `choose-student|guest`, `age-<id>`, `trigger-<id>`, `survey-next`, `survey-notice`, `survey-step`, `tenkey-*`, `student-error`, `spin-button`, `wheel`, `back`, `result-card`, `ok-button`, `error-back`, `logo`, `pin-*`, スタッフ画面の各 testid。`choose-student|guest` は有効な参加の方法の行だけに付く。
 
 
 ## 10. デザイン方針「Festival Key Visual」
 
 現代の日本の祭りポスターが動き出す、というコンセプト。紙色の地にベタ塗りの色面、紙の粒子、印刷の版ズレ（オフセットの影）。グラデーション・グロー・光沢・紙吹雪・コインは使わない。
 
-- パレット：紙 `#EEEADB`／群青 `#1A33E0`／インク紺 `#0A0E33`／信号赤 `#F23B20`。
+- パレットは4つの役割：紙 `paper`（地）／主色 `main`（ワードマーク・主ボタン・面。紙色の文字を載せる）／インク `ink`（文字・罫線）／差し色 `accent`（版ズレの影・帯・「まわす」ボタン・スタンプ・協賛特別賞の面）。既定（よーそろ）は 紙 `#EEEADB`／群青 `#1A33E0`／インク紺 `#0A0E33`／信号赤 `#F23B20`。
+  - CSS 変数は `--paper --main --ink --accent`（`css/tokens.css` の初期値がよーそろ）と、配色から作る `--ink-soft`（インクの 62%）・`--backdrop`（インクの 72%。ダイアログの背景）・`--main-rgb`（スタッフ画面のクロス表の濃淡 `rgba(var(--main-rgb), a)`）。`--danger` は配色に関係なく赤（`#F23B20` 固定。危険操作のボタンとスタッフ画面のエラー文字）。警告色 `#F7D9A8`・無効の地 `#D8D3C2` も固定。
+  - 配色はプリセット7つ（`js/theme.js THEMES`：よーそろ・若葉・桜・海・夜祭・墨・鉄紺）か、config の `theme.custom`（4色の `#RRGGBB`。あればプリセットより優先）。全プリセットが満たす条件：紙/主色 ≥ 4.5（主色の面に紙色の文字）、紙/差し色 ≥ 3.0（差し色の面に紙色の大きな文字）、インク/差し色 ≥ 4.5（協賛特別賞：差し色の面にインクの文字）、インク/紙 ≥ 12（本文）。`contrastReport(colors)` が条件ごとの比と合否を返す（カスタム色の警告用）。
+  - 適用は `applyTheme(resolveTheme(config.theme))`：`<html>` の style に上の変数を書き、`<meta name="theme-color">` を紙色にする。JS・CSS に色を直書きしない（抽選画面のダイヤルの目盛り＝`--ink`・進捗の弧と針＝`--accent` は CSS、ハーフトーンの canvas はインクの色を引数で受けてキャッシュのキーに含める）。
+  - **配色・回すもの・文言の差し替えは演出中に行わない。** `app.js applyLook` は `refresh()`（どの画面を出すより前）と、スタッフ画面を閉じた直後からだけ呼ぶ。抽選の保存・空転中（state が `drawing`）はスタッフ画面を開けない。
+- 回すもの（`js/motifs.js`。7つ：舵輪・ガチャ玉・ガラポン・歯車・ルーレット・風車・さくら）：
+  - `<symbol id="wheel" viewBox="-300 -300 600 600">` はステージに**1つだけ**（`defsHtml`）。ロゴ・待機画面の大きなマーク・情報画面の飾り・抽選画面・結果画面の飾りはすべて `<use href="#wheel">` で、`stage.setMotif(id)` は symbol の中身だけを入れ替える（参照する `<use>` の href は付け直す）。
+  - 図形の約束：中心 (0,0)・半径およそ 292 以内（600×600 の枠に収まる）。塗りは**2色だけ**＝本体 `var(--wc,…)`・目印 `var(--hl,…)`（回っていることが分かる1か所。結果画面の飾りでは `--hl` を `--wc` と同じにして単色のシルエット）。線（stroke）・グラデーション・フィルタ・style 属性を使わない。**`id` 属性を持たない**（スタッフ画面の見本 `motifPreviewSvg` が同じ図形を何個も並べるため。くり返しは `<g transform>` に展開する）。`tests/motifs.test.mjs` がこの約束を確かめる。
+  - 回す操作・空転・刻み音・演出は全モチーフで同じ。モチーフごとに違うのは、図形・呼び名・最初の向き `angle`・小見出しの欧文だけ。知らない id は舵輪で描く（id は保存したまま）。
 - 書体：Dela Gothic One（日本語の見出し）／Zen Kaku Gothic New 700（本文）／Archivo 900（欧文・数字）／DM Mono 500（キャプション）。`font-display: block`＋preload。
 - 画面は 横1180×820・縦820×1180 を基準にした固定構図で、画面に収まる最大の等倍で拡縮する（`fitStage`）。細長い画面では論理サイズが広がり、各要素は端に固定されて伸びる。縦置きは構図を別に組み替える（`#stage[data-o=p]`）。
-- アンケート画面：紙の地に、段階表示（SURVEY ＋「アンケート 1/2」＋2本の赤い帯）→ Dela の設問 → 選択肢の大きなチップ（4px の枠・フラット）。選択は**インク地に紙色の文字へ反転＋赤い丸/四角の✓**で、色だけに頼らない（Q1 は丸＝単一、Q2 は四角＝複数）。チップは残りの高さいっぱいに伸び、1180×820・1024×768・820×1180 でスクロールなしに全選択肢が収まる（E2E で寸法を検証）。ラベルは `splitPhrases` で文節の切れ目だけで折り返し、括弧の補足（「（Instagram・Xなど）」）は1まとまりにする。登場はチップが順に立ち上がるだけ（transform / opacity のみ・clip-path なし・`?fast=1` / reduced-motion では無し）。注意書きは赤い罫線つきの1ブロック。
-- 画面：区分選択（巨大な「よーそろがちゃ」＋ 読みの「YOSORO GACHA」＋ 赤い「おひとり1回・参加無料」＋ 01/02 の2行＋右下の舵輪マーク）／学籍番号（ベタ塗りの大きなテンキー・版ズレの表示欄・赤いラベルのエラー）／舵輪（目盛りのダイヤル＋進捗の赤い弧）／終了・エラー・読込失敗（情報画面）。ロゴは各画面ヘッダ左の小さな文字マーク（3秒長押しでスタッフ画面）。ヘッダ帯の中央は「YOSORO GACHA — よーそろがちゃ」（アンケートは「YOSORO GACHA — SURVEY」）。
-- 区分選択の見出し（`js/screens.js chooseScreen`・`css/poster.css`「区分選択」）：
+- アンケート画面：紙の地に、段階表示（SURVEY ＋「アンケート 1/2」＋2本の赤い帯）→ Dela の設問 → 選択肢の大きなチップ（4px の枠・フラット）。選択は**インク地に紙色の文字へ反転＋赤い丸/四角の✓**で、色だけに頼らない（Q1 は丸＝単一、Q2 は四角＝複数）。チップは残りの高さいっぱいに伸び、1180×820・1024×768・820×1180 でスクロールなしに全選択肢が収まる（E2E で寸法を検証）。ラベルは `splitPhrases` で文節の切れ目だけで折り返し、括弧の補足（「（Instagram・Xなど）」）は1まとまりにする。登場はチップが順に立ち上がるだけ（transform / opacity のみ・clip-path なし・`?fast=1` / reduced-motion では無し）。注意書きは赤い罫線つきの1ブロック（空の設定では出さない）。
+  - 選択肢の数が既定（Q1 10個・Q2 8個）と違うときの調整：列・行の数は個数から（§4）。Q1 のラベルの大きさは列数から（5列で 33px。列が増えるとチップが狭くなるので小さく、減ると大きく：`--lbs`、26〜44px）。どれかのチップから文字がはみ出すときだけ、全チップの字を同じ割合（`--lbk`。1 から 0.06 ずつ下げて、最小 0.52）で小さくする（`js/screens.js fitChips`）。
+- 画面：区分選択（巨大な「よーそろがちゃ」＋ 読みの「YOSORO GACHA」＋ 赤い「おひとり1回・参加無料」＋ 01/02 の2行＋右下の舵輪マーク）／学籍番号（ベタ塗りの大きなテンキー・版ズレの表示欄・赤いラベルのエラー）／舵輪（目盛りのダイヤル＋進捗の赤い弧）／終了・エラー・読込失敗（情報画面）。ロゴは各画面ヘッダ左の小さな文字マーク（3秒長押しでスタッフ画面）。ヘッダ帯の中央は `{nameLatin} — {name}`（既定は「YOSORO GACHA — よーそろがちゃ」。nameLatin が空なら name だけ。アンケートは `{nameLatin または name} — SURVEY`）。ここに書いた名前・帯・行の文言・色・舵輪は既定（電波祭2026の設定）での姿で、設定で変わる。
+- 区分選択の見出し（`js/screens.js chooseScreen`・`css/poster.css`「区分選択」）。名前が手詰めの名前のとき（`brand.wordmark.for` が `name|nameLatin` と一致する。既定の「よーそろがちゃ|YOSORO GACHA」）はこの手詰めの経路で、マークアップ・CSS・字間は従来のまま**画素まで同じ**。手詰めの値（`gaps`＝各字の右の字間、`breakAt`＝縦置きで改行する字の位置、`yomiSpacing`＝読みの字間）は config の `brand.wordmark`（既定は `js/templates.js`）。ほかの名前は自動で割り付ける（この次の「名前の自動割り付け」）。手詰めの寸法は次のとおり：
   - ワードマーク「よーそろがちゃ」：Dela Gothic One・群青・赤の版ズレ影（5px 4px）。1文字ずつ `.c`（overflow:hidden の窓）に入れ、中の `.ci` が下から迫り上がる（遅延は 0.05s ＋ 0.07s × 文字番号、`--k`）。窓の右と下の 8px は影のぶん（ゃ・が の下端と影が切れない）。横置きは1行・164px で、左右の端は旧い Latin のワードマークと同じ x=33〜1104（影を含む）。縦置きは「よーそろ」「がちゃ」の2行（`.ln`・199px・行送り 0.88em。改行はそこだけ）で、旧い端（x=26〜784）にそろう。縦置きを1行にすると 116px・字の高さ約 90px で見出しとして弱く、縦に大きな空きができるので2行にした。3:4 の縦長（`--ew` > 0）では幅に合わせて大きくなる。
-  - 字間：かなは字形の凹凸が違う（ー の左右は広く、ち→ゃ は小書きで空く）ので、一律の letter-spacing ではなく、組み合わせごとに「輪郭どうしの最小距離が 0.045em」になる値を各字の右の字間（`--g`＝`YO_GAP`）に持つ。字や綴りを変えたら測り直す。
+  - 字間：かなは字形の凹凸が違う（ー の左右は広く、ち→ゃ は小書きで空く）ので、一律の letter-spacing ではなく、組み合わせごとに「輪郭どうしの最小距離が 0.045em」になる値を各字の右の字間（`brand.wordmark.gaps`。CSS では `--g`）に持つ。字や綴りを変えたら測り直す。
   - 読み「YOSORO GACHA」：Archivo 900・インク色。字間を開けて左右の端をワードマークと同じ幅（横置き x=40〜1104）にそろえる（横 104px・字間 .122em／縦 76px・.077em）。字送りを小数に固定（`text-rendering: geometricPrecision`。Linux の Chromium は字送りを整数に丸めて幅が数 px ずれるため）。装飾なので `aria-hidden`。登場は、紙色のカバー（`::after`）を `scaleX` で外すワイプ（赤いタグと同じ仕組み。カバーは 2px はみ出させ、1024×768 などの小数の拡縮でタグの縁が細い線に見えないようにする）。
   - 縦の間隔（横置き 1180×820）：ヘッダ罫線 → 約 28px → ワードマーク → 約 58px → 読み → 約 58px → 赤いタグ → 約 60px → 行。4:3 などで縦に余る分（`--ex`）は、ワードマーク 0.15・読み 0.38・タグ 0.62 の割合で押し下げて配分する（行は下端固定）。回る舵輪マークの先端（半径 272px の円）と読みの間は 24px 以上あける。
+- 名前の自動割り付け（手詰めでない名前。`js/screens.js fitAuto`・`js/poster.js planWordmark`・`css/poster.css`「名前が手詰めでないとき」の `.scr-choose.auto`）。上の手詰めの寸法を式にしたもので、結果は画面の要素の CSS 変数（`--yo-fs --yo-l --yo-t --yomi-fs --yomi-ls --yomi-t --tag-t`）と `data-lines` に入れる：
+  - 名前：字間は一律 -0.04em。影は字の大きさに合わせて小さくする（横 `clamp(3px, .03em, 5px)`・縦 `clamp(2.4px, .024em, 4px)`）。箱に収まる最大の整数 px：横置きは左 26px・右端から 40px あけ・上端 62px から字の下端まで 188px・上限 164px、縦置きは左 17px・右端から 40px あけ・上端 78px から 400px・上限 199px。1行と2行を比べて字が大きくなる方を使う（同じ大きさなら縦置きだけ2行。行送り 0.88em）。2行にする切れ目は、文節（`splitPhrases`）の切れ目のうち、行頭に来てはいけない字（長音・句読点・小書きのかな・閉じ括弧など）の前と、短い方の行が長い方の 30% 未満になるものを除いて、長い方の行がいちばん短くなる位置。
+  - 読み（Archivo）：右端を名前の右端（影を含む）より 1px 先にそろえるよう字間を計算する（0〜0.3em。字間を詰めても入らなければ字を小さくして字間 0）。大きさの既定は横置き 104px・縦置き 76px（幅が 820px を超えた分の 10% を足す）。nameLatin が空なら行ごと出さない。帯（tagline）が空なら出さない。
+  - 縦の並び：名前の字の下端 → 59px → 読みの字の上端、読みの字の下端 → 59px（縦置きは 56px）→ 帯（読みが無ければ名前の下端から直接）。横置きで縦に余る分（`--ex`）は、名前 0.15・読み 0.38・帯 0.62 の割合で押し下げる（手詰めと同じ）。
+  - 字送りと字のインクの右端は、実際の書体を canvas の `measureText` で測る（レイアウトを使わない）。最後に画面上の右端を1回だけ確かめ、はみ出していれば比例して縮める。測るのは画面を作ったとき・画面の大きさが変わったとき・フォントの読み込み後だけ（下の「性能」）。
 - 演出（保存完了を 0 ms）：舵輪の空転 → シャッターの列ワイプ → 結果。系統ごとに色と振付が違う（順位ではなく系統）：
   - 協賛特別賞：群青と赤の縦シャッター → 赤い面に巨大なタイトルカード（1文字ずつマスクから迫り上がる）→ 文字が全部退いてから結果が登場。結果は赤の面＋ハーフトーン。
   - レアステッカー賞：紙が降りて、中央から群青が割れる → 群青の面に紙色の文字（色の反転）。
   - ステッカー賞：群青が1枚横切る → 落ち着いた紙の面。
   - 結果の登場：ヘッダ → 賞の名称（1文字ずつスラム）→ 罫線 → 景品名 → 「この画面のまま…」→ 抽選番号のスタンプ（揺れ）→ スタッフのボタン。
-- 賞に順位をつけない：Latin ラベルは非序数（`SPONSOR AWARD`／`RARE STICKER`／`STICKER`）。ステッカー賞の右肩は抽選の連番（`DRAW 0044`）で、賞の序列ではない。
+- 賞に順位をつけない：Latin ラベルは非序数（電波祭2026は `SPONSOR AWARD`／`RARE STICKER`／`STICKER`。賞ごとの `latin` で設定でき、新しく作る賞の既定は `SPECIAL PRIZE`／`RARE PRIZE`／`PRIZE`）。ステッカー賞の右肩は抽選の連番（`DRAW 0044`）で、賞の序列ではない。
 - 景品名は 1 行に収まるよう自動で縮小し、小さくなりすぎるときだけ文節の切れ目で折り返す（`splitPhrases`）。タイトルカードも賞の名称の長さに合わせて行分け・縮小する。
 - 性能（iPad Safari。実機で「カクつく」「もたつく」と報告があり、以下を守る）：
   - **動かすのは transform / opacity のみ。clip-path・filter・box-shadow・mix-blend-mode・width/height/top/left は動かさない。** Safari は clip-path のアニメーションをコンポジタで動かせず、毎フレーム巨大な文字（Dela）ごと再描画になる。ワイプは「背景色のカバー（`::after`、または `.cv`）を `scaleX(1→0)` / `scaleY(1→0)` で外す」で表す（結果面は `--bg` 色。終端は scale 0 なので見た目は clip-path と同じ）。退場も同じ（`#result::after` が `scaleX(0→1)`）。
@@ -198,7 +248,12 @@ stage.setDay(text)        // ヘッダの開催日（飾り。残数・確率は
   - **効果音はオーディオクロックに予約する。** `playReveal` は `.playing` を付けた瞬間に、演出の音をすべて `sound.play(name, delayMs, 'reveal')` で予約する（`setTimeout` で鳴らすと主スレッドの遅れの分だけ画とずれる）。`abort` / `reset` / `showResultStatic` で `cancelScheduled('reveal')`。
   - **重いものは動かす前に描いておく（pre-warm）。** 結果面は演出の序盤（200 ms 時点。結果面とタイトルカードを同じフレームにまとめる）から `opacity: .001` で「描画だけ」しておき、`cv` で opacity 1。初めて見える瞬間に巨大な文字（タイトルカード約 340px・賞の名称・景品名）をラスタライズさせない。
   - **レイアウトは来場者が回す前に済ませる。** 舵輪の画面が出て 0.7 秒後に `#stage.warm` を付け、結果面・シャッター・タイトルカードを `display:block` + 不可視にしてレイアウトしておく（`stage.js scheduleWarm`）。演出の頭では文字を差し替えて測り直すだけ。測定（`offsetWidth` など）は `layoutResult` に集約し、演出中（`playing`）は DOM を読み書きしない。`fitStage` は画面の大きさが前回と同じなら何も書かず（CSS 変数・transform の再設定でも #stage 配下全体のスタイル再計算が走る）、`resize` でも寸法が変わらなければ測り直さない。
-  - **ハーフトーンは canvas に1回だけ描く**（枠の大きさ×解像度ごとにキャッシュ、解像度は最大 3 倍）。SVG の円を数百個ラスタライズし直さない。
+  - **設定で変わる文字の割り付け（名前・入口の行・アンケートの選択肢・ヘッダ帯）は、作ったとき・画面の大きさ（向き）が変わったとき・フォントの読み込み後にだけ測り、演出が進んでいる間（`#stage.playing`）に自分から測らない。**
+    - 区分選択の名前の自動割り付け（`fitAuto`）・入口の行の文字（`fitRows`）・アンケートの選択肢の文字（`fitChips`）は、`screens.js autoFit` が測り直す：`ResizeObserver`（作った直後の最初の通知＝最初の描画の前に届く。画面の大きさが変わったときにも届く。無い環境では `resize` イベント）と、`fontsReady` の後の1回。画面が外されたら観察をやめる。幅は canvas の `measureText` で測り（`fitChips` だけは `scrollWidth` と `clientWidth` の比較）、収まるときは何も書かない。
+    - ヘッダ帯（`fitHeader`）は、画面を出したとき（`app.js mount`）・見た目の設定が変わったとき（`applyLook`）・`resize`（`app.js` は `state !== 'drawing'` のときだけ）・結果カードの組み立て（`layoutResult`。フォントを待ってから）に測る。ロゴ・画面名・開催日が重なるときだけ調整し、収まるなら何も書かない。ロゴの文字は、右端が画面幅の 42%（縦置きは 50%）を超えるときに字を小さくする（15px から下限 11px。それでも超えるなら「…」で省略）。画面名は、中央のままでは収まらないときにロゴと開催日のあいだの空きの中央へ寄せ、それでも入らなければ字を小さくして（下限 11px）「…」で省略する。
+    - 抽選画面の見出し（`headingSize`）とスタンプの下の欧文（`setBrand`）は実測しない：字種ごとの幅の見積り（`emWidth`）から決まった値を出す（フォントの読み込み前でも、端末が違っても同じ値）。
+    - タイマー・アニメーションの進行では測らない。演出の途中で画面の向き・大きさが変わったときだけ、従来の `layoutResult` と同じく測り直す。
+  - **ハーフトーンは canvas に1回だけ描く**（枠の大きさ×解像度×インクの色ごとにキャッシュ、解像度は最大 3 倍）。SVG の円を数百個ラスタライズし直さない。
   - 効果音のノイズバッファは `unlock` 時に1回だけ作る（`sound.js ensure`）。紙の粒子は静止タイル1枚（ブレンドなし）。rAF は回さない（空転はコンポジタ。`?perf=1` の計測だけが rAF を使う）。
   - 変更後は `?perf=1` で実機の rAF 間隔を確認する（右上に `frames: N, >33ms: K, max: X ms`）。目安は 1 回の演出で >33ms が 0〜2 回、max が 50 ms 未満。主スレッドのフレームだけを測るので、空転の滑らかさ（コンポジタ）は目で確認する（主スレッドを 300ms 止めても舵輪が回り続けること）。
 - 管理用情報（残数・確率）はプレイヤー画面に出さない。
