@@ -101,6 +101,10 @@ test('motifPreviewSvg: 図形をそのまま描いた単体の <svg>（id なし
   assert.ok(d.includes('width="96"') && d.includes('--wc:#0A0E33') && d.includes('--hl:#F23B20'));
   // 知らない id は舵輪
   assert.equal(motifPreviewSvg('no-such'), motifPreviewSvg('helm'));
+  // 配色の CSS 変数もそのまま使える（スタッフ画面の見本は今の配色で描く）
+  const v = motifPreviewSvg('gear', { wc: 'var(--main)', hl: 'var(--accent)' });
+  assert.ok(v.includes('--wc:var(--main)') && v.includes('--hl:var(--accent)'));
+  assert.ok(motifPreviewSvg('gear', { wc: 'var(--main);x:y' }).includes('--wc:#0A0E33'), 'var() のあとに何か続くものは既定');
 });
 
 test('motifPreviewSvg: 色・大きさの不正な値は既定に戻す（属性に紛れ込ませない）', () => {

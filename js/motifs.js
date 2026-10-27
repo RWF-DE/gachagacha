@@ -99,7 +99,7 @@ export function resolveMotifId(id) {
 /** id のモチーフ { label, noun, stepLatin, angle, svg }。知らない id は舵輪 */
 export const getMotif = (id) => MOTIFS[resolveMotifId(id)];
 
-const SAFE_COLOR = /^(#[0-9A-Fa-f]{3,8}|[A-Za-z]{3,20}|(?:rgb|hsl)a?\([\d\s,.%/-]+\))$/;   // style 属性に埋め込んでよい色だけ
+const SAFE_COLOR = /^(#[0-9A-Fa-f]{3,8}|[A-Za-z]{3,20}|(?:rgb|hsl)a?\([\d\s,.%/-]+\)|var\(--[a-z0-9-]+\))$/;   // style 属性に埋め込んでよい色だけ（配色の CSS 変数 var(--main) なども可）
 
 /**
  * 単体で置ける <svg> 文字列（スタッフ画面の見本用）。<use> を使わず図形をそのまま描くので、何個並べても id がぶつからない。
