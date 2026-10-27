@@ -4,12 +4,15 @@ import * as db from './db.js';
 import { sound } from './sound.js';
 import { createStage } from './stage.js';
 import { chooseScreen, studentScreen, surveyAgeScreen, surveyTriggerScreen, infoScreen, jp } from './screens.js';
-import { dayText } from './poster.js';
+import { dayText, fitHeader } from './poster.js';
 import { normalizeStudentId, validateStudentId, describeIdRule } from './lottery.js';
 import { h, longPress } from './util.js';
 import {
-  LONG_PRESS_OK_MS, LONG_PRESS_ADMIN_MS, IDLE_RESET_MS, SURVEY_AGES, SURVEY_TRIGGERS, SURVEY_VERSION, SURVEY_ADVANCE_MS,
+  LONG_PRESS_OK_MS, LONG_PRESS_ADMIN_MS, IDLE_RESET_MS, SURVEY_VERSION, SURVEY_ADVANCE_MS,
 } from './config.js';
+import { templateConfig, TIER_LATIN, YOSORO_TIER_LATIN } from './templates.js';
+import { applyTheme, resolveTheme } from './theme.js';
+import { getMotif } from './motifs.js';
 import * as admin from './admin.js';
 
 const params = new URLSearchParams(location.search);
@@ -34,6 +37,89 @@ const MSG_USED = 'この学籍番号では/参加済みです。/スタッフに
 const safe = (fn) => { try { return fn(); } catch { /* 演出系の失敗で運用を止めない */ } };
 const play = (name) => safe(() => sound.play(name));
 
+// ---------- 見た目の設定（配色・回すもの・名前と文言・参加の方法・アンケート。docs/CUSTOMIZE.md §5〜§7） ----------
+const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+const str = (v, d, min = 0) => (typeof v === 'string' && [...v].length >= min ? v : d);   // 文字列（min 字以上）だけ使い、それ以外は既定
+const bool = (v, d) => (typeof v === 'boolean' ? v : d);
+
+/**
+ * config から見た目の設定を取り出す。足りない項目・形の違う項目はテンプレート denpasai-2026（＝よーそろ）の値で補う
+ * （データ層の正規化が入る前の v1 config が来る間の橋渡し。正規化済みの config には補う項目が無く、そのまま返る）。
+ */
+function lookOf(cfg) {
+  const d = templateConfig('denpasai-2026').config;
+  const c = obj(cfg);
+  const b = obj(c.brand);
+  const e = obj(c.entry);
+  const s = obj(c.survey);
+  const way = (k) => { const x = obj(e[k]); const w = d.entry[k]; return { enabled: bool(x.enabled, w.enabled), title: str(x.title, w.title, 1), sub: str(x.sub, w.sub) }; };
+  const q = (k) => {
+    const x = obj(s[k]);
+    const w = d.survey[k];
+    const ok = Array.isArray(x.options) && x.options.length >= 2 && x.options.every((o) => o && typeof o.id === 'string' && typeof o.label === 'string');
+    return { heading: str(x.heading, w.heading, 1), short: str(x.short, w.short, 1), options: ok ? x.options : w.options };
+  };
+  const entry = { student: way('student'), guest: way('guest') };
+  if (!entry.student.enabled && !entry.guest.enabled) entry.student.enabled = entry.guest.enabled = true;   // 入口がなくなる設定は無効
+  // 賞の欧文：v1 の config には無いので、よーそろの系統別ラベルで補う
+  const cats = (Array.isArray(c.categories) ? c.categories : []).map((x) => ({
+    id: x?.id, tier: x?.tier, latin: typeof x?.latin === 'string' ? x.latin : (YOSORO_TIER_LATIN[x?.tier] ?? ''),
+  }));
+  return {
+    eventName: str(c.eventName, d.eventName, 1),
+    brand: {
+      name: str(b.name, d.brand.name, 1),
+      nameLatin: str(b.nameLatin, d.brand.nameLatin),
+      eventLabel: str(b.eventLabel, d.brand.eventLabel),
+      eventLatin: str(b.eventLatin, d.brand.eventLatin),
+      tagline: str(b.tagline, d.brand.tagline),
+      prizeWord: str(b.prizeWord, d.brand.prizeWord, 1),
+      wordmark: 'wordmark' in b ? b.wordmark : d.brand.wordmark,   // null（手詰めなし）も設定の値。形の検証は screens.js tunedOf
+    },
+    theme: { preset: str(obj(c.theme).preset, d.theme.preset), custom: obj(c.theme).custom ?? null },
+    motif: str(c.motif, d.motif),
+    entry,
+    survey: { enabled: bool(s.enabled, d.survey.enabled), notice: str(s.notice, d.survey.notice), q1: q('q1'), q2: q('q2') },
+    /** 結果画面に出す賞の欧文。今の config から categoryId で引く（飾りなので。賞が消えていれば系統の既定） */
+    latinFor: (categoryId, tier) => {
+      const cat = cats.find((x) => x.id === categoryId);
+      return (cat && cat.latin) || TIER_LATIN[cat?.tier ?? tier] || '';
+    },
+  };
+}
+
+let look = lookOf(null);   // 今の見た目の設定（画面の組み立てに渡す）
+let lookKey = '';
+
+/**
+ * 見た目の設定を画面に反映する：配色（CSS 変数・theme-color）・回すもの・文言（stage）・ロゴ・タブのタイトル。
+ * refresh() から、どの画面も出す前に呼ぶ。演出中には呼ばない（スタッフ画面は演出中に開けないので、そこからの変更も安全）。
+ * 配色・回すもの・名前が前回と同じなら何もしない（抽選のたびに <html> のスタイルを書き直さない）。
+ */
+function applyLook(cfg) {
+  look = lookOf(cfg);
+  const key = JSON.stringify([look.eventName, look.brand, look.theme, look.motif]);
+  if (key === lookKey) return;
+  lookKey = key;
+  const { brand } = look;
+  safe(() => applyTheme(resolveTheme(look.theme)));
+  safe(() => stage.setMotif(look.motif));
+  safe(() => stage.setBrand(brand));
+  safe(() => {
+    const logo = $('#logo');
+    logo.setAttribute('aria-label', brand.name);
+    // ロゴ横の文字「{eventLabel} / {eventLatin}」。縦置きでは欧文だけ（和文は .jp で隠れる）。片方が空ならもう片方だけ（隠さない）
+    const text = logo.querySelector('.logo-text');
+    if (brand.eventLabel && brand.eventLatin) text.replaceChildren(h('span', { class: 'jp' }, `${brand.eventLabel} / `), brand.eventLatin);
+    else text.replaceChildren(brand.eventLabel || brand.eventLatin || '');
+    fitHeader($('#stage'));   // ロゴの長さが変わったので、ヘッダ帯の重なりを調べ直す
+  });
+  safe(() => {
+    document.title = `${brand.name}｜${look.eventName}`;
+    document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', brand.name);
+  });
+}
+
 // ---------- 画面遷移の共通処理 ----------
 // 入力途中で放置されたら待機へ戻す画面（アンケートを含む）
 const IDLE_STATES = new Set(['student', 'survey-age', 'survey-trigger', 'wheel']);
@@ -54,6 +140,7 @@ function armIdle() {
 
 function mount(el) {
   host.replaceChildren(el);
+  safe(() => fitHeader($('#stage')));   // ヘッダ帯の文字が長い名前で重なるときだけ調整（収まるなら何もしない）
   return el;
 }
 
@@ -66,8 +153,14 @@ function showChoose() {
   safe(() => stage.setInteractive(false));
   mount(chooseScreen({
     intro: !introPlayed && !REDUCED,
+    brand: look.brand,
+    entry: look.entry,
     onStudent: () => { play('tap'); showStudent(); },
-    onGuest: () => { play('tap'); kind = 'guest'; survey = { age: null, triggers: [] }; showSurveyAge(); },
+    onGuest: () => {
+      play('tap');
+      kind = 'guest';
+      if (look.survey.enabled) { survey = { age: null, triggers: [] }; showSurveyAge(); } else { survey = null; showWheel(); }   // アンケートを使わない設定ではそのまま抽選へ
+    },
   }));
   introPlayed = true;
 }
@@ -107,7 +200,7 @@ function showStudent(message = '') {
     showWheel();
   };
 
-  const screen = studentScreen({ rule, onSubmit: submit, onBack: () => { play('tap'); showChoose(); } });
+  const screen = studentScreen({ rule, brand: look.brand, onSubmit: submit, onBack: () => { play('tap'); showChoose(); } });
   msg = screen.msg;
   if (message) setMsg(msg, message);
   mount(screen.el);
@@ -120,7 +213,8 @@ function showSurveyAge() {
   let timer = 0;
   const token = navToken;
   const { el } = surveyAgeScreen({
-    options: SURVEY_AGES,
+    survey: look.survey,
+    brand: look.brand,
     selected: survey.age,
     onSelect: (id) => {
       if (state !== 'survey-age') return;
@@ -138,7 +232,9 @@ function showSurveyTrigger() {
   setState('survey-trigger');
   safe(() => stage.setInteractive(false));
   const { el } = surveyTriggerScreen({
-    options: SURVEY_TRIGGERS,
+    survey: look.survey,
+    brand: look.brand,
+    noun: getMotif(look.motif).noun,
     selected: survey.triggers,
     onChange: (ids) => { play('tap'); survey.triggers = ids; },
     onNext: () => { if (survey.age && survey.triggers.length) { play('tap'); showWheel(); } },
@@ -147,11 +243,11 @@ function showSurveyTrigger() {
   mount(el);
 }
 
-/** 保存用の回答（選択肢の並び順に整える）。検証は db.draw が行う。 */
+/** 保存用の回答（Q2 の選択肢の並び順に整える）。検証は db.draw が行う。 */
 const surveyPayload = () => ({
   v: SURVEY_VERSION,
   age: survey?.age ?? null,
-  triggers: SURVEY_TRIGGERS.map((t) => t.id).filter((id) => survey?.triggers.includes(id)),
+  triggers: look.survey.q2.options.map((t) => t.id).filter((id) => survey?.triggers.includes(id)),
 });
 
 function showWheel() {
@@ -161,7 +257,7 @@ function showWheel() {
     onBack: () => {
       if (state !== 'wheel' || drawing) return;
       play('tap');
-      if (kind === 'guest') showSurveyTrigger(); else showChoose();   // 一般の方は答えを残したまま Q2 へ
+      if (kind === 'guest' && look.survey.enabled) showSurveyTrigger(); else showChoose();   // 一般の方は答えを残したまま Q2 へ（アンケートを使わない設定なら待機へ）
     },
   }));
   safe(() => stage.setInteractive(true));
@@ -172,6 +268,7 @@ function showClosed() {
   kind = null; studentId = null; survey = null;
   safe(() => stage.setInteractive(false));
   mount(infoScreen({
+    brand: look.brand,
     name: 'closed', title: '本日の抽選は/終了しました', lead: 'たくさんの/ご参加/ありがとうございました！', tagged: true,
   }));
 }
@@ -180,6 +277,7 @@ function showError(text = '保存できませんでした。/スタッフを/呼
   setState('error');
   safe(() => stage.setInteractive(false));
   mount(infoScreen({
+    brand: look.brand,
     name: 'error', tone: 'alert', title: text, small: true,
     lead: '景品は/決まっていません。/もう一度/はじめから/お試しください。',
     actions: [{ label: '最初にもどる', solid: true, testid: 'error-back', onClick: () => refresh() }],
@@ -189,6 +287,7 @@ function showError(text = '保存できませんでした。/スタッフを/呼
 function showFatal() {
   setState('fatal');
   mount(infoScreen({
+    brand: look.brand,
     name: 'fatal', title: 'データを/開けません', small: true, lead: 'スタッフを/呼んでください。',
     actions: [{ label: '再読み込み', solid: true, onClick: () => location.reload() }],
   }));
@@ -197,6 +296,7 @@ function showFatal() {
 // ---------- 抽選 ----------
 const toReveal = (d) => ({
   tier: d.tier, categoryName: d.categoryName, prizeName: d.prizeName, label: d.label, reduced: REDUCED,
+  categoryLatin: look.latinFor(d.categoryId, d.tier),   // 賞の欧文は今の config から引く（飾りなので抽選記録には持たない）
 });
 
 async function onTurn() {
@@ -205,7 +305,7 @@ async function onTurn() {
   drawing = true;
   const myKind = kind;
   const myId = studentId;
-  const mySurvey = myKind === 'guest' ? surveyPayload() : undefined;
+  const mySurvey = myKind === 'guest' && look.survey.enabled ? surveyPayload() : undefined;   // アンケートを使わない設定では付けない（付けると拒否される）
   setState('drawing');   // 舵輪の画面はそのまま。空転しながら保存の完了を待つ
   safe(() => stage.startSpin());
   let result;
@@ -287,6 +387,7 @@ async function refresh() {
     }
     await db.migrateGamjaPrizeName();
     config = await db.getConfig();
+    applyLook(config);   // 配色・回すもの・文言。どの画面を出すより前に（演出中には呼ばない）
     applySound();
     try { stage.setDay(dayText(config, await db.getActiveDayId())); } catch { /* 飾りなので失敗しても続行 */ }
     const pending = await db.getPendingDraw();
@@ -318,8 +419,11 @@ async function openAdmin() {
   const wasResult = state === 'result';
   safe(() => stage.setInteractive(false));
   await admin.open();
-  // 未確認の結果を表示中に開いた場合：まだ未確認なら結果画面はそのまま残す
-  if (wasResult && (await db.getPendingDraw().catch(() => null))) return;
+  // 未確認の結果を表示中に開いた場合：まだ未確認なら結果画面はそのまま残す（配色・文言の変更だけ反映する）
+  if (wasResult && (await db.getPendingDraw().catch(() => null))) {
+    try { config = await db.getConfig(); applyLook(config); } catch { /* 飾りなので失敗しても結果画面はそのまま */ }
+    return;
+  }
   await refresh();
 }
 
@@ -349,6 +453,8 @@ async function main() {
   stage = createStage($('#stage'), { sound, reducedMotion: REDUCED });
   stage.onTurn(onTurn);
   stage.setInteractive(false);
+  // 画面の大きさが変わったら、ヘッダ帯を測り直す（stage の拡縮の更新より後に登録＝後に走る。演出中は測らない）
+  addEventListener('resize', () => { if (state !== 'drawing') safe(() => fitHeader($('#stage'))); });
   longPress($('#logo'), {
     ms: LONG_PRESS_ADMIN_MS,
     onProgress: (p) => $('#logo').style.setProperty('--p', p),

@@ -1,29 +1,31 @@
-// ポスター表現の共有部品：舵輪マーク・ヘッダ帯・拡縮・紙の粒子・文字の割り付け
+// ポスター表現の共有部品：回すもの（モチーフ）のマーク・ヘッダ帯・拡縮・紙の粒子・文字の割り付け
 // （DOM に触るのはここと stage.js / screens.js だけ。抽選やDBには一切触れない）
+import { getMotif } from './motifs.js';
 
-/** 舵輪（8本スポーク）と矢印・回転アイコンのシンボル。--wc: 本体色 / --hl: 王様スポーク（赤）の色 */
-export const DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-<symbol id="wheel" viewBox="-300 -300 600 600" overflow="visible">
- <g fill="var(--wc,#0A0E33)">
-  <path fill-rule="evenodd" d="M-206 0a206 206 0 1 0 412 0a206 206 0 1 0 -412 0ZM-170 0a170 170 0 1 1 340 0a170 170 0 1 1 -340 0Z"/>
-  <g id="wh-s"><rect x="-11" y="-240" width="22" height="240"/><rect x="-19" y="-292" width="38" height="132" rx="19"/></g>
-  <use href="#wh-s" transform="rotate(45)"/><use href="#wh-s" transform="rotate(90)"/><use href="#wh-s" transform="rotate(135)"/>
-  <use href="#wh-s" transform="rotate(180)"/><use href="#wh-s" transform="rotate(225)"/><use href="#wh-s" transform="rotate(270)"/><use href="#wh-s" transform="rotate(315)"/>
-  <path fill-rule="evenodd" d="M-76 0a76 76 0 1 0 152 0a76 76 0 1 0 -152 0ZM-42 0a42 42 0 1 1 84 0a42 42 0 1 1 -84 0Z"/>
-  <circle r="16"/>
- </g>
- <g fill="var(--hl,#F23B20)"><rect x="-19" y="-292" width="38" height="132" rx="19"/><rect x="-11" y="-240" width="22" height="80"/></g>
-</symbol>
+/**
+ * 回すもの（js/motifs.js）と矢印・回転アイコンのシンボル。--wc: 本体色 / --hl: 目印（舵輪なら赤い王様スポーク）の色。
+ * ロゴ・待機画面の大きなマーク・抽選画面・結果画面の飾りはすべて <use href="#wheel"> なので、
+ * モチーフを替えるときは #wheel の中身だけを入れ替える（stage.setMotif）。
+ */
+export function defsHtml(motifId) {
+  return `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="wheel" viewBox="-300 -300 600 600" overflow="visible">${getMotif(motifId).svg}</symbol>
 <symbol id="arrow" viewBox="0 0 48 48"><path d="M4 24h36M26 8l16 16-16 16" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="square"/></symbol>
 <symbol id="rot" viewBox="0 0 48 48"><path d="M40 24a16 16 0 1 1-5-11.6" fill="none" stroke="currentColor" stroke-width="6"/><path d="M42 4v14H28z" fill="currentColor"/></symbol>
 </defs></svg>`;
+}
 
 export const wheelMark = (extra = '') =>
   `<svg class="wm" viewBox="-300 -300 600 600" aria-hidden="true" ${extra}><use href="#wheel" x="-300" y="-300" width="600" height="600"/></svg>`;
 
-/** ヘッダ帯。左はロゴ（固定配置）の場所。中央は画面名、右は開催日（非データの飾り）と色見本 */
+/** ヘッダ帯。左はロゴ（固定配置）の場所。中央は画面名（HTML。文字は esc() を通す）、右は開催日（非データの飾り）と色見本 */
 export const metaHtml = (mid = '') =>
   `<div class="meta"><span class="ml"></span><span class="mm">${mid}</span><span class="r"><span class="day"></span><span class="sw"><i></i><i></i><i></i></span></span></div>`;
+
+/** ヘッダ中央の文字（docs/CUSTOMIZE.md §7.2）。待機・学籍番号・抽選・情報画面：「{nameLatin} — {name}」（nameLatin が空なら name だけ） */
+export const brandMid = (brand) => (brand?.nameLatin ? `${brand.nameLatin} — ${brand.name}` : String(brand?.name ?? ''));
+/** アンケート画面：「{nameLatin または name} — SURVEY」 */
+export const surveyMid = (brand) => `${brand?.nameLatin || brand?.name || ''} — SURVEY`;
 
 /** 1文字ずつマスクで滑り込ませるための分割。--k は何文字目か */
 export function splitChars(str, k0 = 0) {
@@ -76,6 +78,65 @@ export function fitStage(stageEl) {
   return geo;
 }
 
+// ---------- ヘッダ帯の文字が重ならないようにする ----------
+const HDR_GAP = 20;       // 文字どうしの最小の空き(px)
+const HDR_BASE = 15;      // ヘッダ帯・ロゴの字の大きさ(px。css/poster.css と同じ)
+const HDR_MIN = 11;       // これより小さくせず、収まらなければ「…」で省略
+/**
+ * ヘッダ帯の左（ロゴ）・中央（画面名）・右（開催日）は、長い名前・長いイベント名・長い開催日名のときだけ重なる。
+ * 収まるときは何も書かない（今の見た目のまま）。収まらないとき：
+ *   ロゴの文字：右端が画面の幅の 42%（縦置きは 50%）を超えるなら字を小さく（11px まで）、それでも超えれば「…」で省略
+ *   画面名：中央のまま収まらなければ、ロゴと開催日のあいだの空きの中央へ寄せ、入らなければ字を小さく（11px まで）→「…」で省略
+ * 測るのは画面を出したとき・画面の大きさが変わったときだけ（app.js の mount と resize、stage.js の layoutResult）。演出中は呼ばない。
+ * scope = 画面名を調整する範囲（既定はステージ全体。結果カードの準備では #result だけ）。ロゴは常に確かめる（右端が要るため）。
+ */
+export function fitHeader(stageEl, scope = stageEl) {
+  const geo = fitStage(stageEl);
+  const s = geo.s;
+  const logo = stageEl.querySelector('#logo');
+  const lt = logo?.querySelector('.logo-text');
+  let logoRight = 0;
+  if (logo && lt) {
+    lt.removeAttribute('style');
+    let r = logo.getBoundingClientRect().right / s;
+    const cap = geo.W * (geo.portrait ? 0.5 : 0.42);
+    if (r > cap) {
+      const tw = lt.getBoundingClientRect().width / s;
+      const room = Math.max(40, tw - (r - cap));
+      const fs = Math.floor((HDR_BASE * room) / tw);
+      if (fs >= HDR_MIN) lt.style.fontSize = `${fs}px`;
+      else { lt.style.fontSize = `${HDR_MIN}px`; lt.style.maxWidth = `${Math.floor(room)}px`; lt.style.overflow = 'hidden'; lt.style.textOverflow = 'ellipsis'; }
+      r = logo.getBoundingClientRect().right / s;
+    }
+    logoRight = r;
+  }
+  for (const meta of scope.querySelectorAll('.meta')) {
+    const mm = meta.querySelector('.mm');
+    const right = meta.querySelector('.r');
+    if (!mm || !right) continue;
+    mm.removeAttribute('style');
+    const box = meta.getBoundingClientRect();
+    if (!box.width) continue;   // 表示されていない
+    const range = document.createRange();
+    range.selectNodeContents(mm);
+    const nat = range.getBoundingClientRect().width / s;
+    const cx = (box.left + box.right) / 2 / s;
+    const lo = Math.max(box.left / s, logoRight) + HDR_GAP;
+    const hi = right.getBoundingClientRect().left / s - HDR_GAP;
+    if (nat <= 2 * Math.min(cx - lo, hi - cx) + 0.5) continue;   // 中央のまま収まる
+    const free = Math.max(60, hi - lo);
+    if (nat > free) {
+      const fs = Math.floor((HDR_BASE * free) / nat);
+      mm.style.lineHeight = `${HDR_BASE * 1.5}px`;   // 小さくした字も、ほかの字と同じ行の高さ（上に浮かない）
+      if (fs >= HDR_MIN) mm.style.fontSize = `${fs}px`;
+      else { mm.style.fontSize = `${HDR_MIN}px`; mm.style.maxWidth = `${Math.floor(free)}px`; mm.style.overflow = 'hidden'; mm.style.textOverflow = 'ellipsis'; }
+    }
+    const ir = mm.getBoundingClientRect();
+    mm.style.position = 'relative';
+    mm.style.left = `${Math.round(lo + free / 2 - (ir.left + ir.right) / 2 / s)}px`;
+  }
+}
+
 // ---------- 紙の粒子（静止タイル1枚。アニメーション・ブレンドなし） ----------
 export function installGrain(stageEl) {
   try {
@@ -112,10 +173,10 @@ export function installGrain(stageEl) {
 /**
  * ハーフトーン（協賛特別賞の飾り）を canvas に1回だけ描く（静止画。SVG の円を数百個ラスタライズし直さないため）。
  * 元の図は 236×168 の座標系で、枠（boxW×boxH）に xMax・yMid の「スライス（はみ出す分は切る）」で収める。
- * scale = 描画の解像度（CSS px あたりの画素数）。
+ * scale = 描画の解像度（CSS px あたりの画素数）。ink = 点の色（配色のインク。呼び出し側が --ink を読んで渡す）。
  */
 const HT_W = 236; const HT_H = 168;
-export function drawHalftone(canvas, boxW, boxH, scale = 2, s = 14) {
+export function drawHalftone(canvas, boxW, boxH, scale = 2, ink = '#0A0E33', s = 14) {
   const sc = Math.max(1, Math.min(3, scale));
   canvas.width = Math.max(1, Math.round(boxW * sc));
   canvas.height = Math.max(1, Math.round(boxH * sc));
@@ -126,7 +187,7 @@ export function drawHalftone(canvas, boxW, boxH, scale = 2, s = 14) {
   g.clearRect(0, 0, boxW, boxH);
   g.translate(boxW - HT_W * k, (boxH - HT_H * k) / 2);
   g.scale(k, k);
-  g.fillStyle = '#0A0E33';
+  g.fillStyle = ink;
   g.beginPath();
   for (let r = 0; r * s * 0.866 < HT_H + s; r++) {
     for (let c = -1; c * s < HT_W + s; c++) {
@@ -176,6 +237,66 @@ export function splitPhrases(text) {
   if (cur) out.push(cur);
   // 空白だけの文節は前に結合
   return out.reduce((a, p) => { if (/^\s+$/.test(p) && a.length) a[a.length - 1] += p; else a.push(p); return a; }, []);
+}
+
+// ---------- 字の大きさの見積り（実測しない＝決まった値になる） ----------
+/**
+ * 文字列の幅の見積り（em）。全角（かな・漢字・全角記号）は 1em。半角は字種ごとの控えめな値（見出しの Dela は英数が幅広め）。
+ * 字体の読み込み前でも、画面の大きさや端末が違っても同じ値になる（長い呼び名のときだけ字を小さくする判断に使う）。
+ */
+export function emWidth(text) {
+  let w = 0;
+  for (const ch of String(text)) {
+    const c = ch.codePointAt(0);
+    if (c < 0x80) w += /[A-Z]/.test(ch) ? 0.8 : /[a-z]/.test(ch) ? 0.7 : /[0-9]/.test(ch) ? 0.72 : ch === ' ' ? 0.32 : 0.5;
+    else if (c >= 0xff61 && c <= 0xff9f) w += 0.5;   // 半角カナ
+    else w += 1;
+  }
+  return w;
+}
+
+/**
+ * 見出し（nowrap の複数行）の字の大きさ(px)。いちばん長い行が maxW(px) に収まる最大のサイズ（base 以下・min 以上の整数）。
+ * ls = 字間（em。1字ごとに足す）。base に収まるなら base をそのまま返す（収まる見出しは今のサイズのまま）。
+ */
+export function headingSize(lines, { base, min, maxW, ls = 0 }) {
+  const widest = Math.max(...lines.map((t) => emWidth(t) + ls * [...String(t)].length));
+  return Math.max(min, Math.min(base, Math.floor(maxW / widest)));
+}
+
+/**
+ * 待機画面の大きな名前（ワードマーク）の割り付け計画（docs/CUSTOMIZE.md §7.1）。実測した字送りを渡す純粋関数。
+ *   adv[i]      i 文字目の字送り（em）
+ *   gap         字間（em。負で詰める）
+ *   phraseEnds  文節の終わりの文字位置（累積の文字数。最後は adv.length）＝ 2行にするときの切れ目の候補
+ *   availW      1行の幅の上限(px)（行の最後の字の字送りの終わりまで）
+ *   maxInk      先頭から字の下端（影を含む）までに使ってよい高さ(px)
+ *   cap         字の大きさの上限(px)
+ *   twoFirst    1行と2行が同じ大きさなら2行にする（縦置き）
+ *   minRatio    2行にするとき、短い方の行は長い方の行の幅のこの割合以上（「…祭」だけの行のような孤立した行を作らない）
+ * 1行と2行（文節の切れ目のうち長い方の行がいちばん短くなる位置）を比べて、字が大きくなる方を返す。
+ * 字の下端は、先頭の行の上から ((行数-1)×lineStep + inkBottom) em（行送り 0.88em・字の下端 0.976em は今の手詰めを測った値）。
+ * 戻り値 { lines: 1|2, split: 2行目の先頭の文字位置（1行なら adv.length）, fs: 整数px, widths: [各行の幅(em)] }
+ */
+export function planWordmark({ adv, gap, phraseEnds, availW, maxInk, cap, twoFirst = false, minRatio = 0.3, lineStep = 0.88, inkBottom = 0.976 }) {
+  const n = adv.length;
+  const widthEm = (a, b) => { let s = 0; for (let i = a; i < b; i++) s += adv[i]; return s + gap * (b - a - 1); };
+  const sizeFor = (lines, wEm) => Math.max(12, Math.floor(Math.min(cap, availW / wEm, maxInk / ((lines - 1) * lineStep + inkBottom))));
+  const w0 = widthEm(0, n);
+  let best = { lines: 1, split: n, widths: [w0], fs: sizeFor(1, w0) };
+  let two = null;
+  for (const e of phraseEnds) {
+    if (!(e > 0 && e < n)) continue;
+    const w1 = widthEm(0, e); const w2 = widthEm(e, n);
+    const m = Math.max(w1, w2);
+    if (Math.min(w1, w2) < m * minRatio) continue;   // 孤立した短い行ができる切れ目は使わない
+    if (!two || m < two.m) two = { lines: 2, split: e, widths: [w1, w2], m };
+  }
+  if (two) {
+    two.fs = sizeFor(2, two.m);
+    if (two.fs > best.fs || (twoFirst && two.fs === best.fs)) best = two;
+  }
+  return { lines: best.lines, split: best.split, fs: best.fs, widths: best.widths };
 }
 
 /** 画面内の文字（Dela など）が読み込み済みになるのを待つ（最大 ms） */

@@ -426,7 +426,7 @@ async function renderSurvey(el) {
           h('tbody', {}, agg.ages.map((a) => h('tr', {}, h('td', { class: 'l strong2' }, nwPhrases(a.label)),
             ...agg.triggers.map((t) => {
               const n = agg.cross[a.id]?.[t.id] || 0;
-              return h('td', { class: n ? 'has' : '', 'data-testid': `sv-cross-${a.id}-${t.id}`, style: n ? { backgroundColor: `rgba(26, 51, 224, ${(0.12 + 0.4 * (n / crossMax)).toFixed(2)})` } : {} }, String(n));
+              return h('td', { class: n ? 'has' : '', 'data-testid': `sv-cross-${a.id}-${t.id}`, style: n ? { backgroundColor: `rgba(var(--main-rgb), ${(0.12 + 0.4 * (n / crossMax)).toFixed(2)})` } : {} }, String(n));
             }))))))),
     ].filter(Boolean));
   };

@@ -26,3 +26,70 @@ export const CONTRAST_RULES = [
   { key: 'ink/accent', a: 'ink', b: 'accent', min: 4.5, label: '協賛特別賞の面の文字（インク）' },
   { key: 'ink/paper', a: 'ink', b: 'paper', min: 12, label: '本文（紙の上のインク）' },
 ];
+
+// ---------- 関数 ----------
+// applyTheme 以外は DOM に触れない（node:test から読める）。import しただけでは何もしない。
+
+const ROLES = ['paper', 'main', 'ink', 'accent'];
+const HEX6 = /^#[0-9A-Fa-f]{6}$/;
+const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);   // 'constructor' などの継承プロパティを id と見なさない
+const pickRoles = (o) => ({ paper: o.paper, main: o.main, ink: o.ink, accent: o.accent });
+const validColors = (c) => !!c && typeof c === 'object' && ROLES.every((k) => typeof c[k] === 'string' && HEX6.test(c[k]));
+
+/** '#RRGGBB' → [r, g, b]（0〜255 の整数）。形が違えば null */
+export function hexToRgb(hex) {
+  if (typeof hex !== 'string' || !HEX6.test(hex)) return null;
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+const lin = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+const luminance = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+
+/** WCAG のコントラスト比（1〜21）。a・b は '#RRGGBB'。どちらかが不正なら NaN */
+export function contrast(a, b) {
+  const ra = hexToRgb(a); const rb = hexToRgb(b);
+  if (!ra || !rb) return NaN;
+  const la = luminance(ra); const lb = luminance(rb);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/**
+ * 4色が CONTRAST_RULES を満たすか。戻り値は規則ごとの { key, label, ratio, min, ok }（順番は CONTRAST_RULES と同じ）。
+ * ratio は小数2桁に切り捨て（「4.50」と表示されたのに不合格、を避ける）。ok は切り捨て前の値で判定。
+ */
+export function contrastReport(colors) {
+  return CONTRAST_RULES.map(({ key, a, b, min, label }) => {
+    const r = contrast(colors?.[a], colors?.[b]);
+    const good = Number.isFinite(r);
+    return { key, label, ratio: good ? Math.floor(r * 100) / 100 : 0, min, ok: good && r >= min };
+  });
+}
+
+/**
+ * config の theme（{preset, custom}）から実際に使う4色 {paper, main, ink, accent} を決める。
+ * custom の4色がすべて '#RRGGBB' ならそれ。そうでなければ preset。知らない preset は yosoro。
+ */
+export function resolveTheme(themeCfg) {
+  const c = themeCfg?.custom;
+  if (validColors(c)) return pickRoles(c);
+  const id = themeCfg?.preset;
+  return pickRoles(THEMES[typeof id === 'string' && own(THEMES, id) ? id : DEFAULT_THEME_ID]);
+}
+
+/**
+ * 配色を CSS 変数に反映する（--paper --main --ink --accent と、派生の --main-rgb --ink-soft --backdrop）。
+ * 派生色の式は css/tokens.css の初期値と同じ（よーそろの値なら初期値と一致する）。<meta name="theme-color"> も紙色にする。
+ * 演出中に呼ばない（app.js の applyLook は refresh() からだけ呼ぶ）。root を渡せば <html> 以外にも書ける（テスト用）。
+ */
+export function applyTheme(colors, root = document.documentElement) {
+  const t = validColors(colors) ? pickRoles(colors) : pickRoles(THEMES[DEFAULT_THEME_ID]);
+  const s = root.style;
+  for (const k of ROLES) s.setProperty(`--${k}`, t[k]);
+  s.setProperty('--main-rgb', hexToRgb(t.main).join(', '));
+  const [ir, ig, ib] = hexToRgb(t.ink);
+  s.setProperty('--ink-soft', `rgba(${ir}, ${ig}, ${ib}, 0.62)`);
+  s.setProperty('--backdrop', `rgba(${ir}, ${ig}, ${ib}, 0.72)`);
+  root.ownerDocument?.querySelector?.('meta[name="theme-color"]')?.setAttribute('content', t.paper);
+  return t;
+}
