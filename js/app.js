@@ -285,6 +285,7 @@ async function refresh() {
       await admin.openSetup();
       return refresh();
     }
+    await db.migrateGamjaPrizeName();
     config = await db.getConfig();
     applySound();
     try { stage.setDay(dayText(config, await db.getActiveDayId())); } catch { /* 飾りなので失敗しても続行 */ }

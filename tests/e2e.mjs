@@ -231,6 +231,104 @@ try {
     assert.equal(d.inventory.length, 14);
     assert.equal(d.inventory.find((r) => r.key === 'day1:sticker-denpasai').remaining, 6);
     assert.ok(metaVal(d, 'config').pinHash && metaVal(d, 'config').pinHash !== PIN, 'PIN はハッシュで保存');
+
+    // 既設端末の在庫・履歴を再現し、表示名だけが一度更新されることを確認。
+    const legacyDraw = {
+      id: 'migration-test-old-draw', seq: 42, label: 'migration-test-old-draw',
+      eventId: 'denpasai-2026', dayId: 'day1', kind: 'guest', prizeId: 'bulldak',
+      categoryId: 'sponsor', tier: 'sponsor', prizeName: 'ブルダック炒め麺',
+      categoryName: '協賛特別賞', drawnAt: 1, confirmedAt: null,
+    };
+    await page.evaluate((draw) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('yosoro-gacha');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta', 'inventory', 'draws'], 'readwrite');
+        const meta = tx.objectStore('meta');
+        const configReq = meta.get('config');
+        configReq.onsuccess = () => {
+          const config = configReq.result.value;
+          config.prizes.find((p) => p.id === 'bulldak').name = 'ブルダック炒め麺';
+          meta.put({ key: 'config', value: config });
+        };
+        meta.delete('migration:gamja-prize-name-v1');
+        meta.put({ key: 'pendingDrawId', value: draw.id });
+        const inventory = tx.objectStore('inventory');
+        for (const [key, remaining, adjust] of [['day1:bulldak', 48, -1], ['day2:bulldak', 50, 0]]) {
+          const inventoryReq = inventory.get(key);
+          inventoryReq.onsuccess = () => {
+            const record = inventoryReq.result;
+            record.initial = 50;
+            record.remaining = remaining;
+            record.adjust = adjust;
+            inventory.put(record);
+          };
+        }
+        tx.objectStore('draws').add(draw);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+    }), legacyDraw);
+    const beforeMigration = await dumpDb();
+    const inventoryBeforeMigration = beforeMigration.inventory.filter((record) => record.prizeId === 'bulldak');
+    await page.reload();
+    await page.waitForSelector(tid('ok-button'));
+    const migrated = await dumpDb();
+    const migratedConfig = metaVal(migrated, 'config');
+    assert.equal(migratedConfig.prizes.find((p) => p.id === 'bulldak').name, 'カムジャ麺');
+    assert.deepEqual(migrated.inventory.filter((record) => record.prizeId === 'bulldak'), inventoryBeforeMigration, '在庫・調整数は維持される');
+    assert.deepEqual(migrated.draws.find((draw) => draw.id === legacyDraw.id), legacyDraw, '未確認の抽選記録は変更されない');
+    assert.equal(metaVal(migrated, 'pendingDrawId'), legacyDraw.id, '未確認抽選の参照は維持される');
+    assert.equal(metaVal(migrated, 'migration:gamja-prize-name-v1'), true, '名称移行済みの印を保存する');
+    assert.ok(migrated.logs.some((l) => l.type === 'prize-name-migration'), '名称変更がログに残る');
+
+    // 移行後に設定名が旧名へ編集されても、次の起動で上書きされない。
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const req = indexedDB.open('yosoro-gacha');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta'], 'readwrite');
+        const meta = tx.objectStore('meta');
+        const configReq = meta.get('config');
+        configReq.onsuccess = () => {
+          const config = configReq.result.value;
+          config.prizes.find((p) => p.id === 'bulldak').name = 'ブルダック炒め麺';
+          meta.put({ key: 'config', value: config });
+        };
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+    }));
+    await page.reload();
+    await page.waitForSelector(tid('ok-button'));
+    assert.equal(metaVal(await dumpDb(), 'config').prizes.find((p) => p.id === 'bulldak').name, 'ブルダック炒め麺');
+
+    // 残りの E2E に影響しないよう、移行確認用の仮データを戻す。
+    await page.evaluate(({ inventoryRecords, drawId }) => new Promise((resolve, reject) => {
+      const req = indexedDB.open('yosoro-gacha');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta', 'inventory', 'draws'], 'readwrite');
+        const meta = tx.objectStore('meta');
+        const configReq = meta.get('config');
+        configReq.onsuccess = () => {
+          const config = configReq.result.value;
+          config.prizes.find((p) => p.id === 'bulldak').name = 'カムジャ麺';
+          meta.put({ key: 'config', value: config });
+        };
+        const inventory = tx.objectStore('inventory');
+        for (const record of inventoryRecords) inventory.put(record);
+        tx.objectStore('draws').delete(drawId);
+        meta.delete('pendingDrawId');
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+    }), { inventoryRecords: d.inventory.filter((record) => record.prizeId === 'bulldak'), drawId: legacyDraw.id });
+    await page.reload();
+    await waitScreen('choose');
   });
 
   await step('プレイヤー画面に残数・確率が出ない', async () => {
