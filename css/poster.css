@@ -17,16 +17,16 @@
   font-family: var(--f-body);
   font-weight: 700;
   /* 既定（系統なし）：紙＋群青 */
-  --bg: var(--paper); --fg: var(--ink); --cat: var(--blue); --wheel: var(--blue);
-  --panelbg: var(--blue); --panelfg: var(--paper); --stampbg: var(--red); --stampfg: var(--paper);
+  --bg: var(--paper); --fg: var(--ink); --cat: var(--main); --wheel: var(--main);
+  --panelbg: var(--main); --panelfg: var(--paper); --stampbg: var(--accent); --stampfg: var(--paper);
   --ex: 0px; --ew: 0px;
 }
-#stage.t-sponsor { --bg: var(--red); --fg: var(--ink); --cat: var(--paper); --wheel: var(--ink);
-  --panelbg: var(--paper); --panelfg: var(--blue); --stampbg: var(--paper); --stampfg: var(--ink); }
-#stage.t-rare { --bg: var(--blue); --fg: var(--paper); --cat: var(--paper); --wheel: var(--ink);
-  --panelbg: var(--paper); --panelfg: var(--blue); --stampbg: var(--red); --stampfg: var(--paper); }
-#stage.t-sticker { --bg: var(--paper); --fg: var(--ink); --cat: var(--blue); --wheel: var(--blue);
-  --panelbg: var(--blue); --panelfg: var(--paper); --stampbg: var(--red); --stampfg: var(--paper); }
+#stage.t-sponsor { --bg: var(--accent); --fg: var(--ink); --cat: var(--paper); --wheel: var(--ink);
+  --panelbg: var(--paper); --panelfg: var(--main); --stampbg: var(--paper); --stampfg: var(--ink); }
+#stage.t-rare { --bg: var(--main); --fg: var(--paper); --cat: var(--paper); --wheel: var(--ink);
+  --panelbg: var(--paper); --panelfg: var(--main); --stampbg: var(--accent); --stampfg: var(--paper); }
+#stage.t-sticker { --bg: var(--paper); --fg: var(--ink); --cat: var(--main); --wheel: var(--main);
+  --panelbg: var(--main); --panelfg: var(--paper); --stampbg: var(--accent); --stampfg: var(--paper); }
 
 /* 紙の粒子：静止タイル1枚。最前面。ブレンドなし */
 #stage::after {
@@ -58,9 +58,9 @@
   white-space: nowrap; touch-action: none;
 }
 [data-o=p] .logo-text .jp { display: none; }
-.logo-mark { width: 24px; height: 24px; flex: none; --wc: currentColor; --hl: var(--red); overflow: visible; }
+.logo-mark { width: 24px; height: 24px; flex: none; --wc: currentColor; --hl: var(--accent); overflow: visible; }
 .logo::after { /* 長押しの進捗：細い赤の線 */
-  content: ""; position: absolute; left: 12px; right: 12px; bottom: 4px; height: 4px; background: var(--red);
+  content: ""; position: absolute; left: 12px; right: 12px; bottom: 4px; height: 4px; background: var(--accent);
   transform-origin: 0 50%; transform: scaleX(var(--p)); pointer-events: none;
 }
 /* 演出の準備中（結果の系統クラスだけ先に付く間）も、ロゴは待機の色のまま */
@@ -81,12 +81,12 @@
 .meta .day::before { content: var(--day, ""); }
 .meta .sw { display: inline-flex; gap: 3px; }
 .meta .sw i { width: 11px; height: 11px; display: block; }
-.meta .sw i:nth-child(1) { background: var(--blue); }
-.meta .sw i:nth-child(2) { background: var(--red); }
+.meta .sw i:nth-child(1) { background: var(--main); }
+.meta .sw i:nth-child(2) { background: var(--accent); }
 .meta .sw i:nth-child(3) { background: var(--ink); }
 #stage.t-sponsor #result .sw i:nth-child(2) { background: var(--paper); }
 
-.wm { display: block; overflow: visible; --wc: var(--wheel); --hl: var(--red); }
+.wm { display: block; overflow: visible; --wc: var(--wheel); --hl: var(--accent); }
 
 /* ---------- 共通：小さな見出し・ボタン ---------- */
 .step { position: absolute; left: 40px; top: 92px; font-family: var(--f-mono); font-weight: 500; font-size: 16px; letter-spacing: .1em; text-transform: uppercase; display: flex; gap: 10px; align-items: center; }
@@ -106,32 +106,33 @@
 /* ================= 区分選択（choose） ================= */
 .scr-choose { color: var(--ink); }
 /* 巨大な「よーそろがちゃ」（Dela Gothic One・群青に赤の版ズレ影）。横置きは1行で、左右の端は旧ワードマークと同じ（x=33〜1104）。
-   各字は .c（overflow:hidden の窓）の中の .ci が迫り上がる。--k = 何文字目か（登場の遅延）、--g = 右隣との字間（js/screens.js の YO_GAP）。
+   各字は .c（overflow:hidden の窓）の中の .ci が迫り上がる。--k = 何文字目か（登場の遅延）、--g = 右隣との字間（brand.wordmark.gaps。js/templates.js）。
    窓の右と下の 8px は版ズレの影ぶん（影も下端の ゃ・が も窓で切れない）。縦置きだけ「よーそろ」/「がちゃ」の2行（.ln）。 */
-.scr-choose .yo { position: absolute; left: 26px; top: calc(62px + var(--ex) * .15); z-index: 2; margin: 0; font-family: var(--f-disp); font-weight: 400; font-size: 164px; line-height: 1; color: var(--blue); white-space: nowrap; }
+.scr-choose .yo { position: absolute; left: 26px; top: calc(62px + var(--ex) * .15); z-index: 2; margin: 0; font-family: var(--f-disp); font-weight: 400; font-size: 164px; line-height: 1; color: var(--main); white-space: nowrap; }
 .scr-choose .yo .ln { display: inline; }
 .scr-choose .yo .c { display: inline-block; overflow: hidden; vertical-align: top; padding: 0 8px 8px 0; margin-right: calc(var(--g, 0em) - 8px); height: calc(1em + 8px); }
-.scr-choose .yo .ci { display: block; transform-origin: 50% 100%; text-shadow: 5px 4px 0 var(--red); }
+.scr-choose .yo .ci { display: block; transform-origin: 50% 100%; text-shadow: 5px 4px 0 var(--accent); }
 /* 読み：Archivo 900 の「YOSORO GACHA」（インク色）。字間を開けて、左右の端をワードマークの幅（x=40〜1104）にそろえる。
    字送りは小数に固定（geometricPrecision。Linux の Chromium は整数に丸めて、幅が数 px ずれるため）。装飾なので js/screens.js で aria-hidden。 */
-.scr-choose .yomi { position: absolute; left: 40px; top: calc(267px + var(--ex) * .38); margin: 0; font-family: var(--f-num); font-weight: 900; font-size: 104px; line-height: 1; letter-spacing: .122em; text-rendering: geometricPrecision; color: var(--ink); white-space: nowrap; }
-.scr-choose .tag { position: absolute; left: 40px; top: calc(412px + var(--ex) * .62); background: var(--red); color: var(--paper); font-size: 26px; line-height: 1; padding: 11px 18px; letter-spacing: .06em; white-space: nowrap; }
+.scr-choose .yomi { position: absolute; left: 40px; top: calc(267px + var(--ex) * .38); margin: 0; font-family: var(--f-num); font-weight: 900; font-size: 104px; line-height: 1; letter-spacing: var(--yl, .122em); text-rendering: geometricPrecision; color: var(--ink); white-space: nowrap; }
+.scr-choose .tag { position: absolute; left: 40px; top: calc(412px + var(--ex) * .62); background: var(--accent); color: var(--paper); font-size: 26px; line-height: 1; padding: 11px 18px; letter-spacing: .06em; white-space: nowrap; }
 .scr-choose .rows { position: absolute; left: 40px; bottom: 24px; width: 560px; }
 .row {
   position: relative; display: grid; grid-template-columns: 70px 1fr 58px; align-items: center; width: 100%; height: 124px; text-align: left;
   padding: 0 22px 0 20px; border: 4px solid var(--ink); overflow: hidden; touch-action: manipulation;
 }
 .row .n { font-family: var(--f-mono); font-weight: 500; font-size: 18px; letter-spacing: .06em; align-self: start; margin-top: 16px; }
+.row .tx { min-width: 0; }   /* 題名・説明が長くても 1fr の列を広げない（js/screens.js fitRows が列の幅に収まるよう字を小さくする） */
 .row .t { display: block; font-family: var(--f-disp); font-weight: 400; font-size: 46px; line-height: 1.05; letter-spacing: -.01em; white-space: nowrap; }
 .row .s { display: block; font-size: 22px; margin-top: 6px; letter-spacing: .04em; white-space: nowrap; }
 .row .ar { width: 46px; height: 46px; justify-self: end; }
-.row.a { background: var(--blue); color: var(--paper); border-color: var(--blue); }
+.row.a { background: var(--main); color: var(--paper); border-color: var(--main); }
 .row.b { background: var(--paper); color: var(--ink); }
 .row .wipe { position: absolute; inset: 0; background: var(--ink); transform: translateX(-101%); transition: transform .35s var(--ease-hard); z-index: 0; }
 .row > *:not(.wipe) { position: relative; z-index: 1; }
 .row:active .wipe { transform: none; }
-.scr-choose .bigw { position: absolute; right: -70px; bottom: -112px; width: 560px; height: 560px; --wc: var(--blue); }
-.scr-choose .bigw .wm { width: 100%; height: 100%; --wc: var(--blue); animation: slow 160s linear infinite; }
+.scr-choose .bigw { position: absolute; right: -70px; bottom: -112px; width: 560px; height: 560px; --wc: var(--main); }
+.scr-choose .bigw .wm { width: 100%; height: 100%; --wc: var(--main); animation: slow 160s linear infinite; }
 @keyframes slow { to { transform: rotate(360deg); } }
 
 /* 初回だけの登場 */
@@ -169,20 +170,31 @@
 [data-o=p] .scr-choose .yo .ln { display: block; height: .88em; }
 /* 2行目の「が」は左の余白がほぼ 0（1行目の「よ」は .044em）。左端の輪郭をそろえる */
 [data-o=p] .scr-choose .yo .ln + .ln { margin-left: .043em; }
-[data-o=p] .scr-choose .yomi { font-size: calc(76px + var(--ew) * .1); letter-spacing: .077em; top: calc(496px + var(--ew) * .43); }
+[data-o=p] .scr-choose .yomi { font-size: calc(76px + var(--ew) * .1); letter-spacing: var(--yp, .077em); top: calc(496px + var(--ew) * .43); }
 [data-o=p] .scr-choose .tag { top: calc(615px + var(--ew) * .5); }
 [data-o=p] .scr-choose .rows { width: auto; right: 40px; bottom: 36px; }
 [data-o=p] .scr-choose .bigw { right: -200px; top: calc(610px + var(--ew) * .5); bottom: auto; width: 640px; height: 640px; }
+
+/* 名前が手詰めの名前（よーそろがちゃ）でないとき（.auto。docs/CUSTOMIZE.md §7.1）：大きさと位置は js/screens.js fitAuto が
+   画面を作ったとき・画面の大きさが変わったときに変数に入れる。上の手詰めの規則と同じ詳細度で、後ろから上書きする（縦置きの規則にも勝つ）。
+   字間は一律 -0.04em。2行のときは行送り .88em（手詰めの縦置きと同じ。改行は <br>）。影は字の大きさに合わせて小さくする */
+.scr-choose.auto .yo { --g: -.04em; left: var(--yo-l, 26px); top: var(--yo-t, 62px); font-size: var(--yo-fs, 120px); }
+.scr-choose.auto .yo .ci { text-shadow: clamp(3px, .03em, 5px) clamp(2.4px, .024em, 4px) 0 var(--accent); }
+.scr-choose.auto[data-lines="2"] .yo { line-height: .88; }
+.scr-choose.auto[data-lines="2"] .yo .c { margin-bottom: calc(-.12em - 8px); }
+.scr-choose.auto[data-lines="2"] .yo .ci { line-height: 1; }
+.scr-choose.auto .yomi { top: var(--yomi-t, 267px); font-size: var(--yomi-fs, 104px); letter-spacing: var(--yomi-ls, .12em); }
+.scr-choose.auto .tag { top: var(--tag-t, 412px); }
 
 /* ================= 学籍番号（student） ================= */
 .scr-student { display: grid; grid-template-columns: 600px 1fr; column-gap: 40px; padding: 92px 40px 40px; }
 .st-left { display: flex; flex-direction: column; gap: 22px; min-width: 0; align-items: flex-start; }
 .st-left .step { position: static; }
 .h-student { font-family: var(--f-disp); font-weight: 400; font-size: 56px; line-height: 1.16; letter-spacing: -.015em; color: var(--ink); }
-.h-student em { font-style: normal; color: var(--blue); }
+.h-student em { font-style: normal; color: var(--main); }
 .st-left .tk-display { width: 100%; }
 .scr .msg { margin: 0; min-height: 0; font-size: 26px; line-height: 1.4; letter-spacing: .02em; }
-.scr .msg--error { align-self: flex-start; background: var(--red); color: var(--paper); padding: 10px 18px; max-width: 100%; }
+.scr .msg--error { align-self: flex-start; background: var(--accent); color: var(--paper); padding: 10px 18px; max-width: 100%; }
 .scr .msg--error:empty { display: none; }
 .st-left .note { font-size: 22px; line-height: 1.5; letter-spacing: .03em; margin: 0; }
 .st-left .back { margin-top: auto; }
@@ -206,7 +218,7 @@
 /* 英数字ルール用の入力欄 */
 .id-alnum { display: grid; gap: 14px; width: 100%; min-width: 0; }
 .id-input { width: 100%; min-width: 0; min-height: 112px; padding: 0 18px; border: 4px solid var(--ink); background: var(--paper); color: var(--ink); font: 900 64px/1 var(--f-num); letter-spacing: .04em; text-align: center; }
-.id-input:focus { outline: 4px solid var(--red); outline-offset: 0; }
+.id-input:focus { outline: 4px solid var(--accent); outline-offset: 0; }
 
 /* ================= 来場者アンケート（survey：本校学生以外の方。Q1 年齢 → Q2 きっかけ） =================
    縦に「ステップ帯 → 設問 → 選択肢のチップ（残りの高さいっぱい）→ 足元（戻る・注意書き・次へ）」。
@@ -216,15 +228,15 @@
 .scr-survey .sv-step .stp { font-family: var(--f-body); font-weight: 700; font-size: 22px; letter-spacing: .06em; text-transform: none; }
 .scr-survey .sv-step .bars { display: inline-flex; gap: 5px; margin-left: 6px; }
 .scr-survey .sv-step .bars i { width: 36px; height: 10px; border: 3px solid var(--ink); display: block; }
-.scr-survey .sv-step .bars i.on { background: var(--red); border-color: var(--red); }
+.scr-survey .sv-step .bars i.on { background: var(--accent); border-color: var(--accent); }
 .sv-h { font-family: var(--f-disp); font-weight: 400; font-size: 52px; line-height: 1.18; letter-spacing: -.015em; color: var(--ink); }
-.sv-h em { font-style: normal; color: var(--blue); margin-right: .1em; }
-.sv-h .ph.sub { display: block; width: fit-content; margin-top: 10px; font-family: var(--f-body); font-size: 28px; letter-spacing: .02em; background: var(--red); color: var(--paper); padding: 2px 14px; line-height: 1.35; }
+.sv-h em { font-style: normal; color: var(--main); margin-right: .1em; }
+.sv-h .ph.sub { display: block; width: fit-content; margin-top: 10px; font-family: var(--f-body); font-size: 28px; letter-spacing: .02em; background: var(--accent); color: var(--paper); padding: 2px 14px; line-height: 1.35; }
 .sv-trigger .sv-h { font-size: 44px; }
 
 .sv-grid { flex: 1 1 auto; min-height: 0; display: grid; gap: 14px; }
-.sv-age { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
-.sv-trig { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(4, minmax(0, 1fr)); }
+.sv-age { grid-template-columns: repeat(var(--cl, 5), minmax(0, 1fr)); grid-template-rows: repeat(var(--rl, 2), minmax(0, 1fr)); }   /* 列・行の数は選択肢の数から（js/screens.js）。10個＝5×2 */
+.sv-trig { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 4), minmax(0, 1fr)); }   /* 2列×ceil(n/2)行。8個＝4行 */
 
 .chip {
   position: relative; display: flex; min-width: 0; min-height: 64px; text-align: left; touch-action: manipulation;
@@ -238,7 +250,7 @@
 .chip .box.rd { border-radius: 50%; }
 .chip .box .ck { width: 28px; height: 28px; opacity: 0; transform: scale(.4); }
 .chip.on { background: var(--ink); color: var(--paper); }
-.chip.on .box { background: var(--red); border-color: var(--red); color: var(--paper); }
+.chip.on .box { background: var(--accent); border-color: var(--accent); color: var(--paper); }
 .chip.on .box .ck { opacity: 1; transform: none; animation: svPop .22s var(--ease-slam) both; }
 .chip.on .n { color: var(--paper); }
 
@@ -246,21 +258,21 @@
 .sv-age .chip { flex-direction: column; justify-content: space-between; padding: 14px 16px 16px; }
 .sv-age .chip .n { position: absolute; left: 16px; top: 14px; }
 .sv-age .chip .box { align-self: flex-end; }
-.sv-age .chip .lb { font-size: 33px; }
+.sv-age .chip .lb { font-size: calc(var(--lbs, 33px) * var(--lbk, 1)); }   /* --lbk = 長い選択肢のときだけ js/screens.js fitChips が 1 より小さくする */
 /* Q2：横並び（チェック四角＋ラベル）。2列×4行 */
 .sv-trig .chip { flex-direction: row; align-items: center; gap: 18px; padding: 0 22px 0 18px; }
 .sv-trig .chip .n { display: none; }
 .sv-trig .chip .box { order: -1; }
-.sv-trig .chip .lb { font-size: 31px; }
+.sv-trig .chip .lb { font-size: calc(31px * var(--lbk, 1)); }
 
 @keyframes svIn { from { transform: translateY(22px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes svPop { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .sv-foot { flex: none; display: flex; align-items: center; gap: 22px; }
-.sv-note { flex: 1 1 0; min-width: 0; margin: 0; text-wrap: balance; font-size: 21px; line-height: 1.5; letter-spacing: .02em; padding-left: 16px; border-left: 6px solid var(--red); }
+.sv-note { flex: 1 1 0; min-width: 0; margin: 0; text-wrap: balance; font-size: 21px; line-height: 1.5; letter-spacing: .02em; padding-left: 16px; border-left: 6px solid var(--accent); }
 .sv-next {
-  position: relative; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 20px; width: 392px; height: 88px; padding: 0 26px 0 30px;
-  background: var(--red); color: var(--paper); font-family: var(--f-disp); font-weight: 400; font-size: 34px; letter-spacing: -.02em; overflow: hidden; touch-action: manipulation;
+  position: relative; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 20px; width: 392px; height: 88px; padding: 0 26px 0 30px; margin-left: auto;   /* 注意書きが空でも右端に置く */
+  background: var(--accent); color: var(--paper); font-family: var(--f-disp); font-weight: 400; font-size: 34px; letter-spacing: -.02em; overflow: hidden; touch-action: manipulation;
 }
 .sv-next .wipe { position: absolute; inset: 0; background: var(--ink); transform: translateY(101%); transition: transform .3s var(--ease-hard); }
 .sv-next:active:not(:disabled) .wipe { transform: none; }
@@ -273,12 +285,12 @@
 /* 縦置き：Q1 は 2列×5行の横並びの行、足元は注意書きを上に出して「戻る／次へ」を1行に */
 [data-o=p] .scr-survey { padding-bottom: 34px; }
 [data-o=p] .sv-trigger .sv-h { font-size: 42px; }
-[data-o=p] .sv-age { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, minmax(0, 1fr)); }
+[data-o=p] .sv-age { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(var(--rp, 5), minmax(0, 1fr)); }
 [data-o=p] .sv-age .chip { flex-direction: row; align-items: center; justify-content: flex-start; gap: 16px; padding: 0 20px 0 18px; }
 [data-o=p] .sv-age .chip .n { display: none; }
 [data-o=p] .sv-age .chip .box { order: -1; align-self: center; }
-[data-o=p] .sv-age .chip .lb { font-size: 34px; }
-[data-o=p] .sv-trig .chip .lb { font-size: 28px; }
+[data-o=p] .sv-age .chip .lb { font-size: calc(34px * var(--lbk, 1)); }
+[data-o=p] .sv-trig .chip .lb { font-size: calc(28px * var(--lbk, 1)); }
 [data-o=p] .sv-foot { flex-wrap: wrap; row-gap: 14px; }
 [data-o=p] .sv-note { order: -1; flex: 1 0 100%; font-size: 22px; }
 [data-o=p] .sv-next { margin-left: auto; width: 420px; }
@@ -291,12 +303,12 @@
 
 /* ================= 抽選（wheel） ================= */
 .scr-wheel { background: var(--paper); }
-.scr-wheel h2 { position: absolute; left: 40px; top: 128px; font-family: var(--f-disp); font-weight: 400; font-size: 60px; line-height: 1.16; letter-spacing: -.015em; color: var(--ink); white-space: nowrap; }
-.scr-wheel h2 em { font-style: normal; color: var(--blue); }
+.scr-wheel h2 { position: absolute; left: 40px; top: 128px; font-family: var(--f-disp); font-weight: 400; font-size: var(--h2-l, 60px); line-height: 1.16; letter-spacing: -.015em; color: var(--ink); white-space: nowrap; }
+.scr-wheel h2 em { font-style: normal; color: var(--main); }
 .scr-wheel .sub { position: absolute; left: 40px; top: calc(340px + var(--ex) * .15); width: 372px; font-size: 25px; line-height: 1.6; letter-spacing: .02em; }
 .scr-wheel .sub q { display: inline-block; white-space: nowrap; quotes: none; background: var(--ink); color: var(--paper); padding: 0 6px; font-style: normal; }
 .scr-wheel .go {
-  position: absolute; left: 40px; bottom: 100px; width: 372px; height: 112px; background: var(--red); color: var(--paper);
+  position: absolute; left: 40px; bottom: 100px; width: 372px; height: 112px; background: var(--accent); color: var(--paper);
   display: flex; align-items: center; justify-content: space-between; padding: 0 26px 0 28px;
   font-family: var(--f-disp); font-weight: 400; font-size: 38px; letter-spacing: -.02em; overflow: hidden; touch-action: manipulation;
 }
@@ -310,12 +322,15 @@
 .scr-wheel .dial { position: absolute; right: 40px; top: calc(80px + var(--ex) / 2); width: 690px; height: 690px; }
 .scr-wheel .dial > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .scr-wheel .wheelwrap { position: absolute; inset: 9.42%; cursor: grab; touch-action: none; border-radius: 50%; outline-offset: 12px; }
-.scr-wheel .wheelwrap .wm { width: 100%; height: 100%; will-change: transform; --wc: var(--blue); }
+.scr-wheel .wheelwrap .wm { width: 100%; height: 100%; will-change: transform; --wc: var(--main); }
 .scr-wheel .wheelwrap:focus-visible { outline: 4px solid var(--ink); }
 .scr-wheel.off .wheelwrap { pointer-events: none; cursor: default; }
-.scr-wheel .arc { stroke-dasharray: 2211.7; transition: none; }
+/* ダイヤルの色は配色から（目盛り＝インク／進捗の弧と針＝差し色）。JS に色を書かない */
+.scr-wheel .dial .ticks { stroke: var(--ink); }
+.scr-wheel .dial .ptr { fill: var(--accent); }
+.scr-wheel .arc { stroke: var(--accent); stroke-dasharray: 2211.7; transition: none; }
 
-[data-o=p] .scr-wheel h2 { font-size: 54px; top: 130px; }
+[data-o=p] .scr-wheel h2 { font-size: var(--h2-p, 54px); top: 130px; }
 [data-o=p] .scr-wheel .sub { top: 304px; width: auto; right: 40px; font-size: 26px; }
 [data-o=p] .scr-wheel .dial { right: auto; left: calc(50% - 280px); top: calc(366px + var(--ex) * .3); width: 560px; height: 560px; }
 [data-o=p] .scr-wheel .go { right: 40px; width: auto; bottom: 108px; }
@@ -325,19 +340,19 @@
 /* ================= 情報画面（終了・エラー・読み込み失敗） ================= */
 .scr-info { background: var(--paper); }
 .scr-info .info-main { position: absolute; left: 40px; right: 40px; top: 118px; display: flex; flex-direction: column; align-items: flex-start; gap: 26px; z-index: 2; }
-.scr-info h1 { font-family: var(--f-disp); font-weight: 400; font-size: 104px; line-height: 1.1; letter-spacing: -.04em; color: var(--ink); text-shadow: 6px 6px 0 var(--red); }
+.scr-info h1 { font-family: var(--f-disp); font-weight: 400; font-size: 104px; line-height: 1.1; letter-spacing: -.04em; color: var(--ink); text-shadow: 6px 6px 0 var(--accent); }
 .scr-info h1.s { font-size: 80px; }
 .scr-info .lead { font-size: 34px; line-height: 1.45; letter-spacing: .03em; max-width: 720px; }
-.scr-info .lead.tagged { background: var(--blue); color: var(--paper); padding: 10px 20px; font-size: 30px; }
+.scr-info .lead.tagged { background: var(--main); color: var(--paper); padding: 10px 20px; font-size: 30px; }
 .scr-info .acts { display: flex; gap: 16px; margin-top: 12px; }
 .scr-info .bigw { position: absolute; right: -90px; bottom: -150px; width: 560px; height: 560px; z-index: 1; }
-.scr-info .bigw .wm { width: 100%; height: 100%; --wc: var(--blue); }
-.scr-info.alert { background: var(--red); }
+.scr-info .bigw .wm { width: 100%; height: 100%; --wc: var(--main); }
+.scr-info.alert { background: var(--accent); }
 .scr-info.alert h1 { color: var(--paper); text-shadow: 6px 6px 0 var(--ink); }
 .scr-info.alert .lead { color: var(--ink); }
 .scr-info.alert .bigw .wm { --wc: var(--ink); --hl: var(--paper); }
-.pbtn.solid { background: var(--ink); color: var(--paper); box-shadow: 6px 6px 0 var(--red); }
-.pbtn.solid::before { background: var(--red); }
+.pbtn.solid { background: var(--ink); color: var(--paper); box-shadow: 6px 6px 0 var(--accent); }
+.pbtn.solid::before { background: var(--accent); }
 .scr-info.alert .pbtn.solid { box-shadow: 6px 6px 0 var(--paper); }
 [data-o=p] .scr-info h1 { font-size: 92px; }
 [data-o=p] .scr-info h1.s { font-size: 72px; }
@@ -347,7 +362,7 @@
 #shut { z-index: 3; pointer-events: none; }
 #shut .g { position: absolute; inset: 0; display: flex; }
 #shut .g i { flex: 1; display: block; height: 100%; }
-#shut .sweep { position: absolute; inset: 0; background: var(--blue); transform: translateX(-101%); }   /* 画面の左外で待機（visibility で隠さない） */
+#shut .sweep { position: absolute; inset: 0; background: var(--main); transform: translateX(-101%); }   /* 画面の左外で待機（visibility で隠さない） */
 
 /* ================= 結果（result） ================= */
 #result { z-index: 2; color: var(--fg); }
@@ -520,8 +535,8 @@
 #stage.playing .scr-wheel { animation: hide 1ms linear var(--cv) forwards; }   /* シャッターが全面を覆っている間に隠す（見えない変化） */
 
 /* シャッター: スポンサー=群青が左→右に立ち上がり、赤が右→左に降りる */
-#stage.playing.t-sponsor #shut .a i { background: var(--blue); animation: colUp 480ms var(--ease-hard) both, off 1ms linear var(--cv) forwards; }
-#stage.playing.t-sponsor #shut .b i { background: var(--red); animation: colDn 480ms var(--ease-hard) both, off 1ms linear var(--cv) forwards; }
+#stage.playing.t-sponsor #shut .a i { background: var(--main); animation: colUp 480ms var(--ease-hard) both, off 1ms linear var(--cv) forwards; }
+#stage.playing.t-sponsor #shut .b i { background: var(--accent); animation: colDn 480ms var(--ease-hard) both, off 1ms linear var(--cv) forwards; }
 #stage.playing.t-sponsor #shut .a i:nth-child(1) { animation-delay: 400ms, var(--cv); }
 #stage.playing.t-sponsor #shut .a i:nth-child(2) { animation-delay: 470ms, var(--cv); }
 #stage.playing.t-sponsor #shut .a i:nth-child(3) { animation-delay: 540ms, var(--cv); }
@@ -536,7 +551,7 @@
 #stage.playing.t-sponsor #shut .b i:nth-child(1) { animation-delay: 1050ms, var(--cv); }
 /* レア: 紙が降りて、中央から群青が割れる */
 #stage.playing.t-rare #shut .a i { background: var(--paper); animation: colDn 420ms var(--ease-hard) 800ms both, off 1ms linear var(--cv) forwards; animation-delay: 800ms, var(--cv); }
-#stage.playing.t-rare #shut .b i { background: var(--blue); animation: colUp 500ms var(--ease-hard) both, off 1ms linear var(--cv) forwards; }
+#stage.playing.t-rare #shut .b i { background: var(--main); animation: colUp 500ms var(--ease-hard) both, off 1ms linear var(--cv) forwards; }
 #stage.playing.t-rare #shut .b i:nth-child(3), #stage.playing.t-rare #shut .b i:nth-child(4) { animation-delay: 1050ms, var(--cv); }
 #stage.playing.t-rare #shut .b i:nth-child(2), #stage.playing.t-rare #shut .b i:nth-child(5) { animation-delay: 1120ms, var(--cv); }
 #stage.playing.t-rare #shut .b i:nth-child(1), #stage.playing.t-rare #shut .b i:nth-child(6) { animation-delay: 1190ms, var(--cv); }

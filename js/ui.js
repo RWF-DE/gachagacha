@@ -64,8 +64,8 @@ export function openDialog({ title, body, actions, dismissible = false }) {
     const back = h('div', { class: 'dlg-backdrop', 'data-testid': 'dialog' }, box);
     document.body.append(back);
     document.addEventListener('keydown', onKey);
-    const first = box.querySelector('input,select,textarea');
-    if (first) setTimeout(() => first.focus(), 30);
+    // 最初の入力欄へ。すぐに合わせる（あとから遅らせて移すと、開いた直後に次の欄へ入力した内容がこの欄に入ってしまう）
+    box.querySelector('input,select,textarea')?.focus();
   });
 }
 

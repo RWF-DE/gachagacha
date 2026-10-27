@@ -8,7 +8,10 @@ export function h(tag, props, ...kids) {
     if (k === 'class') el.className = v;
     else if (k === 'for') el.htmlFor = v;
     else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else if (k === 'style' && typeof v === 'object') {
+      // '--i' のようなカスタムプロパティは Object.assign では無視されるので setProperty で入れる
+      for (const [sk, sv] of Object.entries(v)) { if (sk.startsWith('--')) el.style.setProperty(sk, sv); else el.style[sk] = sv; }
+    }
     else if (k.startsWith('data-') || k.startsWith('aria-') || k === 'role' || k === 'inputmode'
              || k === 'colspan' || k === 'autocapitalize' || k === 'autocorrect') { if (v !== false) el.setAttribute(k, v === true ? '' : v); }
     else if (k in el) el[k] = v;

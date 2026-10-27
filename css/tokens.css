@@ -6,13 +6,18 @@
 @font-face { font-family: "Mono"; src: url("../fonts/dm-mono-500.woff2") format("woff2"); font-weight: 500; font-display: block; }
 
 :root {
-  --paper: #EEEADB;
-  --blue: #1A33E0;
-  --ink: #0A0E33;
-  --red: #F23B20;
+  /* 配色の4つの役割（docs/CUSTOMIZE.md §5）。初期値はよーそろ（群青×朱）。
+     設定の配色は js/theme.js applyTheme が起動時に <html> の style で上書きする。 */
+  --paper: #EEEADB;    /* 地 */
+  --main: #1A33E0;     /* 主色（ワードマーク・主ボタン・面。紙色の文字を載せる） */
+  --ink: #0A0E33;      /* 文字・罫線 */
+  --accent: #F23B20;   /* 差し色（版ズレの影・帯・「まわす」ボタン・協賛特別賞の面） */
 
+  /* 配色から作る派生色（applyTheme が同じ式で上書きする） */
+  --main-rgb: 26, 51, 224;                 /* スタッフ画面のクロス表の濃淡: rgba(var(--main-rgb), a) */
   --ink-soft: rgba(10, 14, 51, 0.62);
-  --danger: var(--red);
+  --backdrop: rgba(10, 14, 51, .72);      /* ダイアログの背景 */
+  --danger: #F23B20;                       /* 危険操作は配色に関係なく赤（配色では変えない） */
 
   --f-disp: "Dela", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
   --f-body: "Zen", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;

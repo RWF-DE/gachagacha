@@ -4,12 +4,16 @@ import * as db from './db.js';
 import { sound } from './sound.js';
 import { createStage } from './stage.js';
 import { chooseScreen, studentScreen, surveyAgeScreen, surveyTriggerScreen, infoScreen, jp } from './screens.js';
-import { dayText } from './poster.js';
+import { dayText, fitHeader } from './poster.js';
 import { normalizeStudentId, validateStudentId, describeIdRule } from './lottery.js';
 import { h, longPress } from './util.js';
 import {
-  LONG_PRESS_OK_MS, LONG_PRESS_ADMIN_MS, IDLE_RESET_MS, SURVEY_AGES, SURVEY_TRIGGERS, SURVEY_VERSION, SURVEY_ADVANCE_MS,
+  LONG_PRESS_OK_MS, LONG_PRESS_ADMIN_MS, IDLE_RESET_MS, SURVEY_VERSION, SURVEY_ADVANCE_MS,
 } from './config.js';
+import { TIER_LATIN } from './templates.js';
+import { normalizeConfig } from './profile.js';
+import { applyTheme, resolveTheme } from './theme.js';
+import { getMotif } from './motifs.js';
 import * as admin from './admin.js';
 
 const params = new URLSearchParams(location.search);
@@ -28,11 +32,68 @@ let studentId = null;      // 正規化済み。メモリ内のみ。URL/console
 let survey = null;         // 一般の方のアンケート回答 {age:id|null, triggers:[id]}。メモリ内のみ（抽選の保存まで何も書かない）
 let navToken = 0;          // 画面遷移ごとに増やし、古い非同期結果を無視する
 let drawing = false;       // 抽選開始ガード（1回だけ）
+let revealing = false;     // 演出（stage.playReveal）の最中。スタッフ画面は開かない（配色・回すものの差し替えは演出中に行わない。DESIGN.md §10）
 let idleTimer = 0;
 
 const MSG_USED = 'この学籍番号では/参加済みです。/スタッフに/確認してください';
 const safe = (fn) => { try { return fn(); } catch { /* 演出系の失敗で運用を止めない */ } };
 const play = (name) => safe(() => sound.play(name));
+
+// ---------- 見た目の設定（配色・回すもの・名前と文言・参加の方法・アンケート。docs/CUSTOMIZE.md §5〜§7） ----------
+/**
+ * config から見た目の設定を取り出す。db.getConfig() は正規化済みの v2 を返すので、ここで補うのは null などの壊れた入力のときだけ
+ * （normalizeConfig が足りない項目をテンプレート denpasai-2026＝よーそろの値で補う。正規化済みならそのまま同じ値）。
+ */
+function lookOf(cfg) {
+  const c = normalizeConfig(cfg);
+  return {
+    eventName: c.eventName,
+    brand: c.brand,
+    theme: c.theme,
+    motif: c.motif,
+    entry: c.entry,
+    survey: c.survey,
+    /** 結果画面に出す賞の欧文。今の config から categoryId で引く（飾りなので。賞が消えていれば系統の既定） */
+    latinFor: (categoryId, tier) => {
+      const cat = c.categories.find((x) => x.id === categoryId);
+      return (cat && cat.latin) || TIER_LATIN[cat?.tier ?? tier] || '';
+    },
+  };
+}
+
+let look = lookOf(null);   // 今の見た目の設定（画面の組み立てに渡す）
+let lookKey = '';
+
+/**
+ * 見た目の設定を画面に反映する：配色（CSS 変数・theme-color）・回すもの・文言（stage）・ロゴ・タブのタイトル。
+ * refresh() から、どの画面も出す前に呼ぶ。演出中には呼ばない（スタッフ画面は演出中に開けないので、そこからの変更も安全）。
+ * 配色・回すもの・名前が前回と同じなら何もしない（抽選のたびに <html> のスタイルを書き直さない）。
+ * 戻り値：見た目を書き換えたら true、前回と同じで何もしなかったら false。
+ */
+function applyLook(cfg) {
+  look = lookOf(cfg);
+  const key = JSON.stringify([look.eventName, look.brand, look.theme, look.motif]);
+  if (key === lookKey) return false;
+  lookKey = key;
+  const { brand } = look;
+  safe(() => applyTheme(resolveTheme(look.theme)));
+  safe(() => stage.setMotif(look.motif));
+  safe(() => stage.setBrand(brand));
+  safe(() => {
+    const logo = $('#logo');
+    logo.setAttribute('aria-label', brand.name);
+    // ロゴ横の文字「{eventLabel} / {eventLatin}」。縦置きでは欧文だけ（和文は .jp で隠れる）。片方が空ならもう片方だけ（隠さない）
+    const text = logo.querySelector('.logo-text');
+    if (brand.eventLabel && brand.eventLatin) text.replaceChildren(h('span', { class: 'jp' }, `${brand.eventLabel} / `), brand.eventLatin);
+    else text.replaceChildren(brand.eventLabel || brand.eventLatin || '');
+    fitHeader($('#stage'));   // ロゴの長さが変わったので、ヘッダ帯の重なりを調べ直す
+  });
+  safe(() => {
+    document.title = `${brand.name}｜${look.eventName}`;
+    document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', brand.name);
+  });
+  return true;
+}
 
 // ---------- 画面遷移の共通処理 ----------
 // 入力途中で放置されたら待機へ戻す画面（アンケートを含む）
@@ -54,6 +115,7 @@ function armIdle() {
 
 function mount(el) {
   host.replaceChildren(el);
+  safe(() => fitHeader($('#stage')));   // ヘッダ帯の文字が長い名前で重なるときだけ調整（収まるなら何もしない）
   return el;
 }
 
@@ -66,8 +128,14 @@ function showChoose() {
   safe(() => stage.setInteractive(false));
   mount(chooseScreen({
     intro: !introPlayed && !REDUCED,
+    brand: look.brand,
+    entry: look.entry,
     onStudent: () => { play('tap'); showStudent(); },
-    onGuest: () => { play('tap'); kind = 'guest'; survey = { age: null, triggers: [] }; showSurveyAge(); },
+    onGuest: () => {
+      play('tap');
+      kind = 'guest';
+      if (look.survey.enabled) { survey = { age: null, triggers: [] }; showSurveyAge(); } else { survey = null; showWheel(); }   // アンケートを使わない設定ではそのまま抽選へ
+    },
   }));
   introPlayed = true;
 }
@@ -107,7 +175,7 @@ function showStudent(message = '') {
     showWheel();
   };
 
-  const screen = studentScreen({ rule, onSubmit: submit, onBack: () => { play('tap'); showChoose(); } });
+  const screen = studentScreen({ rule, brand: look.brand, onSubmit: submit, onBack: () => { play('tap'); showChoose(); } });
   msg = screen.msg;
   if (message) setMsg(msg, message);
   mount(screen.el);
@@ -120,7 +188,8 @@ function showSurveyAge() {
   let timer = 0;
   const token = navToken;
   const { el } = surveyAgeScreen({
-    options: SURVEY_AGES,
+    survey: look.survey,
+    brand: look.brand,
     selected: survey.age,
     onSelect: (id) => {
       if (state !== 'survey-age') return;
@@ -138,7 +207,9 @@ function showSurveyTrigger() {
   setState('survey-trigger');
   safe(() => stage.setInteractive(false));
   const { el } = surveyTriggerScreen({
-    options: SURVEY_TRIGGERS,
+    survey: look.survey,
+    brand: look.brand,
+    noun: getMotif(look.motif).noun,
     selected: survey.triggers,
     onChange: (ids) => { play('tap'); survey.triggers = ids; },
     onNext: () => { if (survey.age && survey.triggers.length) { play('tap'); showWheel(); } },
@@ -147,11 +218,11 @@ function showSurveyTrigger() {
   mount(el);
 }
 
-/** 保存用の回答（選択肢の並び順に整える）。検証は db.draw が行う。 */
+/** 保存用の回答（Q2 の選択肢の並び順に整える）。検証は db.draw が行う。 */
 const surveyPayload = () => ({
   v: SURVEY_VERSION,
   age: survey?.age ?? null,
-  triggers: SURVEY_TRIGGERS.map((t) => t.id).filter((id) => survey?.triggers.includes(id)),
+  triggers: look.survey.q2.options.map((t) => t.id).filter((id) => survey?.triggers.includes(id)),
 });
 
 function showWheel() {
@@ -161,7 +232,7 @@ function showWheel() {
     onBack: () => {
       if (state !== 'wheel' || drawing) return;
       play('tap');
-      if (kind === 'guest') showSurveyTrigger(); else showChoose();   // 一般の方は答えを残したまま Q2 へ
+      if (kind === 'guest' && look.survey.enabled) showSurveyTrigger(); else showChoose();   // 一般の方は答えを残したまま Q2 へ（アンケートを使わない設定なら待機へ）
     },
   }));
   safe(() => stage.setInteractive(true));
@@ -172,6 +243,7 @@ function showClosed() {
   kind = null; studentId = null; survey = null;
   safe(() => stage.setInteractive(false));
   mount(infoScreen({
+    brand: look.brand,
     name: 'closed', title: '本日の抽選は/終了しました', lead: 'たくさんの/ご参加/ありがとうございました！', tagged: true,
   }));
 }
@@ -180,6 +252,7 @@ function showError(text = '保存できませんでした。/スタッフを/呼
   setState('error');
   safe(() => stage.setInteractive(false));
   mount(infoScreen({
+    brand: look.brand,
     name: 'error', tone: 'alert', title: text, small: true,
     lead: '景品は/決まっていません。/もう一度/はじめから/お試しください。',
     actions: [{ label: '最初にもどる', solid: true, testid: 'error-back', onClick: () => refresh() }],
@@ -189,6 +262,7 @@ function showError(text = '保存できませんでした。/スタッフを/呼
 function showFatal() {
   setState('fatal');
   mount(infoScreen({
+    brand: look.brand,
     name: 'fatal', title: 'データを/開けません', small: true, lead: 'スタッフを/呼んでください。',
     actions: [{ label: '再読み込み', solid: true, onClick: () => location.reload() }],
   }));
@@ -197,6 +271,7 @@ function showFatal() {
 // ---------- 抽選 ----------
 const toReveal = (d) => ({
   tier: d.tier, categoryName: d.categoryName, prizeName: d.prizeName, label: d.label, reduced: REDUCED,
+  categoryLatin: look.latinFor(d.categoryId, d.tier),   // 賞の欧文は今の config から引く（飾りなので抽選記録には持たない）
 });
 
 async function onTurn() {
@@ -205,7 +280,7 @@ async function onTurn() {
   drawing = true;
   const myKind = kind;
   const myId = studentId;
-  const mySurvey = myKind === 'guest' ? surveyPayload() : undefined;
+  const mySurvey = myKind === 'guest' && look.survey.enabled ? surveyPayload() : undefined;   // アンケートを使わない設定では付けない（付けると拒否される）
   setState('drawing');   // 舵輪の画面はそのまま。空転しながら保存の完了を待つ
   safe(() => stage.startSpin());
   let result;
@@ -224,10 +299,13 @@ async function onTurn() {
   }
   studentId = null; survey = null; // 保存後は学籍番号・アンケート回答をメモリからも消す
   state = 'result';
+  revealing = true;   // 演出が終わる（スタッフのボタンが出る）まで、ロゴの長押しでもスタッフ画面は開かない
   try {
     await stage.playReveal(toReveal(result));
   } catch { /* 演出が失敗しても結果は保存済み。下で静的表示に切り替える */
     safe(() => stage.showResultStatic(toReveal(result)));
+  } finally {
+    revealing = false;
   }
   host.replaceChildren();
   mountOkButton(result.id, result.kind);
@@ -287,6 +365,7 @@ async function refresh() {
     }
     await db.migrateGamjaPrizeName();
     config = await db.getConfig();
+    applyLook(config);   // 配色・回すもの・文言。どの画面を出すより前に（演出中には呼ばない）
     applySound();
     try { stage.setDay(dayText(config, await db.getActiveDayId())); } catch { /* 飾りなので失敗しても続行 */ }
     const pending = await db.getPendingDraw();
@@ -314,12 +393,21 @@ function applySound() {
 }
 
 async function openAdmin() {
-  if (state === 'drawing' || state === 'setup') return;
+  if (state === 'drawing' || state === 'setup' || revealing) return;   // 結果が出てスタッフのボタンを待つあいだ（未確認の結果の再表示も）は開ける
   const wasResult = state === 'result';
   safe(() => stage.setInteractive(false));
   await admin.open();
-  // 未確認の結果を表示中に開いた場合：まだ未確認なら結果画面はそのまま残す
-  if (wasResult && (await db.getPendingDraw().catch(() => null))) return;
+  // 未確認の結果を表示中に開いた場合：まだ未確認なら結果画面はそのまま残す（配色・文言の変更だけ反映する）。
+  // 見た目が変わったときは結果を静止表示で組み直す：配色は CSS 変数で追従するが、ハーフトーン（協賛特別賞の飾りの canvas）は
+  // 描いたときのインクの色のまま残るので、組み直して新しい配色で描き直す（演出中は開けないので安全。結果の見た目は静止表示と同じ）。
+  const pendingNow = wasResult ? await db.getPendingDraw().catch(() => null) : null;
+  if (pendingNow) {
+    try {
+      config = await db.getConfig();
+      if (applyLook(config)) safe(() => stage.showResultStatic(toReveal(pendingNow)));
+    } catch { /* 飾りなので失敗しても結果画面はそのまま */ }
+    return;
+  }
   await refresh();
 }
 
@@ -349,6 +437,9 @@ async function main() {
   stage = createStage($('#stage'), { sound, reducedMotion: REDUCED });
   stage.onTurn(onTurn);
   stage.setInteractive(false);
+  // 画面の大きさが変わったら、ヘッダ帯を測り直す（stage の拡縮の更新より後に登録＝後に走る。演出中は測らない：
+  // 抽選の保存・空転中は state が 'drawing'、演出の最中は state が 'result' で revealing が立っている）
+  addEventListener('resize', () => { if (state !== 'drawing' && !revealing) safe(() => fitHeader($('#stage'))); });
   longPress($('#logo'), {
     ms: LONG_PRESS_ADMIN_MS,
     onProgress: (p) => $('#logo').style.setProperty('--p', p),

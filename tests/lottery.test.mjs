@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomInt, pickPrize, normalizeStudentId, validateStudentId } from '../js/lottery.js';
 import { validateBackup } from '../js/db.js';
-import { createDefaultConfig, createDefaultInitials } from '../js/config.js';
+import { SCHEMA_VERSION, createDefaultConfig, createDefaultInitials } from '../js/config.js';
 
 test('randomInt: 範囲内の整数のみ・n=1 は常に 0', () => {
   for (let i = 0; i < 2000; i++) {
@@ -117,7 +117,7 @@ test('validateStudentId: 英数字ルール', () => {
   assert.equal(validateStudentId('AB-12', rule).reason, 'charset');
 });
 
-// ---- バックアップ検証（db.js の純粋関数） ----
+// ---- バックアップ検証（db.js の純粋関数。v1 のバックアップ・設定ファイル・版の扱いは profile.test.mjs） ----
 function sampleBackup() {
   const config = createDefaultConfig();
   config.pinHash = 'x';
@@ -128,7 +128,7 @@ function sampleBackup() {
     inventory.push({ key: `${d.id}:${p.id}`, dayId: d.id, prizeId: p.id, initial: n, remaining: n, adjust: 0 });
   }
   return {
-    app: 'yosoro-gacha', schemaVersion: 1, exportedAt: 1,
+    app: 'yosoro-gacha', schemaVersion: SCHEMA_VERSION, exportedAt: 1,
     meta: [{ key: 'config', value: config }, { key: 'activeDayId', value: 'day1' }],
     inventory, draws: [], students: [], logs: [],
   };
@@ -143,8 +143,10 @@ test('validateBackup: 壊れたデータを拒否', () => {
   assert.equal(validateBackup({}).ok, false);
   const b1 = sampleBackup(); b1.inventory[0].remaining = -1;
   assert.equal(validateBackup(b1).ok, false);
-  const b2 = sampleBackup(); b2.schemaVersion = 99;
+  const b2 = sampleBackup(); b2.schemaVersion = SCHEMA_VERSION + 1;
   assert.equal(validateBackup(b2).ok, false);
+  const b2b = sampleBackup(); b2b.schemaVersion = 99;
+  assert.equal(validateBackup(b2b).ok, false);
   const b3 = sampleBackup(); b3.students.push({ studentId: '1', drawId: 'none' });
   assert.equal(validateBackup(b3).ok, false);
   const b4 = sampleBackup(); b4.meta.push({ key: 'pendingDrawId', value: 'nope' });

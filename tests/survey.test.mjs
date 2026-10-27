@@ -1,9 +1,21 @@
 // node --test tests/   来場者アンケート（本校学生以外）の検証・集計・バックアップ検証
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeSurvey, isStoredSurvey, aggregateSurvey, ageLabelOf, triggerLabelsOf, pct, UNANSWERED } from '../js/survey.js';
+import { normalizeSurvey, isStoredSurvey, aggregateSurvey, ageLabelOf, triggerLabelsOf, pct, UNANSWERED, SURVEY_VERSION as SV } from '../js/survey.js';
 import { validateBackup } from '../js/db.js';
-import { SURVEY_AGES, SURVEY_TRIGGERS, SURVEY_VERSION, createDefaultConfig, createDefaultInitials } from '../js/config.js';
+import { SCHEMA_VERSION, SURVEY_AGES, SURVEY_TRIGGERS, SURVEY_VERSION, createDefaultConfig, createDefaultInitials } from '../js/config.js';
+import { SURVEY_AGES as TPL_AGES, SURVEY_TRIGGERS as TPL_TRIGGERS, TEMPLATES } from '../js/templates.js';
+
+test('選択肢の既定は templates.js のもの（config.js は再エクスポート）で、既定の config のアンケートと同じ', () => {
+  assert.equal(SURVEY_AGES, TPL_AGES);
+  assert.equal(SURVEY_TRIGGERS, TPL_TRIGGERS);
+  assert.equal(SURVEY_VERSION, SV, 'SURVEY_VERSION は survey.js のもの');
+  const s = createDefaultConfig().survey;
+  assert.deepEqual(s.q1.options, SURVEY_AGES);
+  assert.deepEqual(s.q2.options, SURVEY_TRIGGERS);
+  assert.deepEqual(s, TEMPLATES['denpasai-2026'].config.survey);
+  assert.deepEqual([s.q1.short, s.q2.short], ['年齢', 'きっかけ']);
+});
 
 test('選択肢：id は重複せず安定、ラベルは仕様どおり', () => {
   for (const list of [SURVEY_AGES, SURVEY_TRIGGERS]) {
@@ -109,7 +121,7 @@ function backup(draws = []) {
     for (const [prizeId, n] of Object.entries(per)) inv.push({ key: `${dayId}:${prizeId}`, dayId, prizeId, initial: n, remaining: n });
   }
   return {
-    app: 'yosoro-gacha', schemaVersion: 1, exportedAt: 1,
+    app: 'yosoro-gacha', schemaVersion: SCHEMA_VERSION, exportedAt: 1,
     meta: [{ key: 'config', value: cfg }, { key: 'activeDayId', value: 'day1' }],
     inventory: inv, draws, students: [], logs: [],
   };

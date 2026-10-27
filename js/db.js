@@ -5,15 +5,21 @@
 import { DB_NAME, SCHEMA_VERSION, createDefaultConfig } from './config.js';
 import { pickPrize, normalizeStudentId, validateStudentId } from './lottery.js';
 import { normalizeSurvey, isStoredSurvey } from './survey.js';
+import { normalizeConfig, planBoxSettings, exportProfile, validateProfileFile } from './profile.js';
 
 const STORES = ['meta', 'inventory', 'draws', 'students', 'logs'];
 
-/** 型付きエラー。code: ALREADY_USED / BOX_EMPTY / PENDING_EXISTS / NOT_SETUP / DB_ERROR など */
+/**
+ * 型付きエラー。code: ALREADY_USED / BOX_EMPTY / PENDING_EXISTS / NOT_SETUP / DB_ERROR など。
+ * 景品・日程の保存の DAY_HAS_DRAWS / PRIZE_HAS_DRAWS / DAY_LOCKED / BAD_REQUEST は detail に対象の id、
+ * INVALID_PROFILE は detail に理由（日本語）が入る。
+ */
 export class DbError extends Error {
   constructor(code, detail) {
     super(code + (detail ? `: ${detail}` : ''));
     this.name = 'DbError';
     this.code = code;
+    this.detail = detail ?? null;
   }
 }
 
@@ -118,13 +124,17 @@ export async function getMeta(key) {
   return row ? row.value : undefined;
 }
 
+/** 保存されている config（v1 でも v2 でも）を正規化した v2 で返す。無ければ null。保存し直すまでディスクの中身は変えない。 */
 export async function getConfig() {
-  return (await getMeta('config')) ?? null;
+  const raw = await getMeta('config');
+  return raw ? normalizeConfig(raw) : null;
 }
 
 /**
- * 既設端末の景品設定に残る旧名称を更新する。
+ * 既設端末の景品設定に残る旧名称を更新する（一度だけ。印は GAMJA_PRIZE_NAME_MIGRATION）。
  * inventory のキーと抽選履歴は prizeId を使うため id は変えず、在庫と過去の記録を保つ。
+ * 新しく作る設定（initialize・importProfile）は最初から移行済みの印を付けるので、旧名称を使うイベントでも書き換えない。
+ * バックアップの復元（importAll）は、バックアップの meta の印のまま。
  */
 export function migrateGamjaPrizeName() {
   return runTx(['meta', 'logs'], 'readwrite', (tx, ok) => {
@@ -156,10 +166,11 @@ export async function getActiveDayId() {
 }
 
 /**
- * 初回セットアップ。config / 在庫 / 開催日を1トランザクションで書く。
+ * 初回セットアップ。config / 在庫 / 開催日を1トランザクションで書く。config は正規化（v2）して保存する。
  * initials: {dayId:{prizeId:count}}
  */
-export function initialize({ config, activeDayId, initials }) {
+export function initialize({ config: given, activeDayId, initials }) {
+  const config = normalizeConfig(given);
   return runTx(STORES, 'readwrite', (tx, ok) => {
     const meta = tx.objectStore('meta');
     const inv = tx.objectStore('inventory');
@@ -167,6 +178,7 @@ export function initialize({ config, activeDayId, initials }) {
     meta.put({ key: 'activeDayId', value: activeDayId });
     meta.put({ key: 'schemaVersion', value: SCHEMA_VERSION });
     meta.put({ key: 'drawSeq', value: {} });
+    meta.put({ key: GAMJA_PRIZE_NAME_MIGRATION, value: true });   // 新しい設定は移行の対象にしない
     for (const d of config.days) {
       for (const p of config.prizes) {
         const n = Math.max(0, Math.floor(Number(initials?.[d.id]?.[p.id] ?? 0)));
@@ -178,12 +190,27 @@ export function initialize({ config, activeDayId, initials }) {
   });
 }
 
-/** 設定の一部更新（効果音・学籍番号ルール・PINなど）。変更前後の要約だけログに残す（pinHashは残さない）。 */
+/**
+ * 設定の更新（効果音・学籍番号ルール・PIN・名前や配色など）。正規化（v2）して保存し、変更前後の要約だけログに残す（pinHashは残さない）。
+ * 開催日・賞・景品は保存済みのまま変えない（在庫・抽選記録と対応しているため。変えるのは
+ * initialize / saveBoxSettings / importProfile / importAll だけ）。何も保存されていなければ渡された config をそのまま保存する。
+ */
 export function saveConfig(config, logType = 'config', logDetail = null) {
-  return runTx(['meta', 'logs'], 'readwrite', (tx, ok) => {
-    tx.objectStore('meta').put({ key: 'config', value: config });
-    addLog(tx, logType, logDetail);
-    ok(true);
+  return runTx(['meta', 'logs'], 'readwrite', (tx, ok, fail) => {
+    const meta = tx.objectStore('meta');
+    const rc = meta.get('config');
+    rc.onsuccess = () => {
+      try {
+        // 保存済みを先に正規化して使う（v1 のまま残る賞の欧文も SPONSOR AWARD … のまま引き継ぐ）
+        const kept = rc.result?.value ? normalizeConfig(rc.result.value) : null;
+        const value = normalizeConfig(kept ? { ...config, days: kept.days, categories: kept.categories, prizes: kept.prizes } : config);
+        meta.put({ key: 'config', value });
+        addLog(tx, logType, logDetail);
+        ok(true);
+      } catch (e) {
+        fail('DB_ERROR', e?.name);
+      }
+    };
   });
 }
 
@@ -240,55 +267,59 @@ export function adjustInventory(dayId, prizeId, delta, reason) {
 }
 
 /**
- * 景品設定の保存（名称・未定フラグ・日別初期本数）。
- * 初期本数は「まだ1回も抽選していない日」だけ変更可。抽選済みの日で値が違えば DAY_HAS_DRAWS。
- * input: {categories:[{id,name}], prizes:[{id,name,countUnknown}], initials:{dayId:{prizeId:n}}}
+ * 景品・賞・開催日の保存（docs/CUSTOMIZE.md §4.2）。画面の一覧をまるごと渡す。
+ * 今の config・在庫・抽選数と比べた判定は js/profile.js planBoxSettings（純粋関数）。
+ * 追加・変更・削除を1つのトランザクションで行い、差分をログ box-settings に残す。成功は新しい config。
+ * input: {days:[{id,label}], categories:[{id,name,tier,latin}], prizes:[{id,categoryId,name,countUnknown}], initials:{dayId:{prizeId:n}}}
+ * 失敗: NOT_SETUP / BAD_REQUEST / DAY_HAS_DRAWS / PRIZE_HAS_DRAWS / DAY_LOCKED（detail に対象の id）
  */
-export function savePrizeSettings(input) {
+export function saveBoxSettings(input) {
+  return boxTx(withNumericInitials(input));
+}
+
+/** 画面の数値欄の文字列（"12"）は整数にして渡す（判定の planBoxSettings は整数だけを受け付ける）。それ以外の値はそのまま渡して断らせる。 */
+function withNumericInitials(input) {
+  if (!input || typeof input.initials !== 'object' || input.initials === null) return input;
+  const initials = {};
+  for (const [dayId, per] of Object.entries(input.initials)) {
+    if (!per || typeof per !== 'object') { initials[dayId] = per; continue; }
+    initials[dayId] = {};
+    for (const [prizeId, v] of Object.entries(per)) {
+      initials[dayId][prizeId] = typeof v === 'string' && /^[0-9]{1,7}$/.test(v.trim()) ? Number(v.trim()) : v;
+    }
+  }
+  return { ...input, initials };
+}
+
+/** saveBoxSettings の本体：config・在庫・抽選数を読み、planBoxSettings の判定どおりに書く（ログ box-settings）。 */
+function boxTx(input) {
   return runTx(['meta', 'inventory', 'draws', 'logs'], 'readwrite', (tx, ok, fail) => {
     const meta = tx.objectStore('meta');
     const inv = tx.objectStore('inventory');
     const rc = meta.get('config');
+    const ra = meta.get('activeDayId');
     const ri = inv.getAll();
     const rd = tx.objectStore('draws').getAll();
-    whenAll([rc, ri, rd], () => {
-      const config = rc.result?.value;
-      if (!config) return fail('NOT_SETUP');
-      const daysWithDraws = new Set(rd.result.map((d) => d.dayId));
-      const changes = [];
-      for (const c of input.categories || []) {
-        const cat = config.categories.find((x) => x.id === c.id);
-        const name = String(c.name ?? '').trim();
-        if (!cat || !name || name.length > 40) return fail('BAD_REQUEST', 'category');
-        if (cat.name !== name) { changes.push({ category: cat.id, from: cat.name, to: name }); cat.name = name; }
-      }
-      for (const p of input.prizes || []) {
-        const prize = config.prizes.find((x) => x.id === p.id);
-        const name = String(p.name ?? '').trim();
-        if (!prize || !name || name.length > 60) return fail('BAD_REQUEST', 'prize');
-        if (prize.name !== name) { changes.push({ prize: prize.id, from: prize.name, to: name }); prize.name = name; }
-        const unk = !!p.countUnknown;
-        if (prize.countUnknown !== unk) { changes.push({ prize: prize.id, countUnknown: unk }); prize.countUnknown = unk; }
-      }
-      const byKey = new Map(ri.result.map((r) => [r.key, r]));
-      for (const [dayId, perPrize] of Object.entries(input.initials || {})) {
-        for (const [prizeId, raw] of Object.entries(perPrize)) {
-          const n = Math.floor(Number(raw));
-          if (!Number.isFinite(n) || n < 0 || n > 100000) return fail('BAD_REQUEST', 'initial');
-          const rec = byKey.get(`${dayId}:${prizeId}`);
-          if (!rec) return fail('NOT_FOUND');
-          if (rec.initial === n) continue;
-          if (daysWithDraws.has(dayId)) return fail('DAY_HAS_DRAWS');
-          changes.push({ dayId, prizeId, initial: { from: rec.initial, to: n } });
-          rec.initial = n;
-          rec.remaining = n; // 抽選前の日なので残数も揃える
-          rec.adjust = 0;
-          inv.put(rec);
+    whenAll([rc, ra, ri, rd], () => {
+      try {
+        if (!rc.result?.value) return fail('NOT_SETUP');
+        const config = normalizeConfig(rc.result.value);
+        const drawsByDay = {};
+        const drawsByPrize = {};
+        for (const d of rd.result) {
+          drawsByDay[d.dayId] = (drawsByDay[d.dayId] || 0) + 1;
+          drawsByPrize[d.prizeId] = (drawsByPrize[d.prizeId] || 0) + 1;
         }
+        const plan = planBoxSettings({ config, inventory: ri.result, drawsByDay, drawsByPrize, activeDayId: ra.result?.value ?? null }, input);
+        if (!plan.ok) return fail(plan.code, plan.detail);
+        for (const row of plan.puts) inv.put(row);
+        for (const key of plan.deletes) inv.delete(key);
+        meta.put({ key: 'config', value: plan.config });   // v1 のまま残っていた config もここで v2 になる
+        if (plan.changes.length) addLog(tx, 'box-settings', plan.changes);
+        ok(plan.config);
+      } catch (e) {
+        fail('DB_ERROR', e?.name);
       }
-      meta.put({ key: 'config', value: config });
-      if (changes.length) addLog(tx, 'prize-settings', changes);
-      ok(config);
     });
   });
 }
@@ -299,20 +330,15 @@ const DRAW_STORES = ['meta', 'inventory', 'draws', 'students'];
 /**
  * 抽選して保存する。resolve は transaction の complete 後。
  * 引数 {kind:'student'|'guest', studentId?, survey?}
- *   guest は survey {age, triggers, v}（js/survey.js で検証）が必須。student は survey を持てない（BAD_REQUEST）。
+ *   参加の方法とアンケートは、トランザクション内で読んだ config（正規化した v2）で判定する（docs/CUSTOMIZE.md §4.1）：
+ *   kind が config.entry で無効なら BAD_REQUEST。guest は config.survey.enabled なら survey {age, triggers, v} が必須
+ *   （config.survey.q1/q2.options で js/survey.js が検証）、無効なら survey を付けてはいけない。student は survey を持てない。
  *   survey は選択肢のラベルを写して draw レコードに保存する（同じ単一トランザクション。DBのバージョン・ストアは変えない）。
  * 成功: 保存済みの draw（studentId は含めない）。
  * 失敗: DbError（code: NOT_SETUP / PENDING_EXISTS / INVALID_STUDENT / ALREADY_USED / BOX_EMPTY / BAD_REQUEST / DB_ERROR）
  */
 export async function draw({ kind, studentId, survey }) {
   if (kind !== 'student' && kind !== 'guest') throw new DbError('BAD_REQUEST', 'kind');
-  let svy = null;
-  if (kind === 'guest') {
-    svy = normalizeSurvey(survey);
-    if (!svy) throw new DbError('BAD_REQUEST', 'survey');
-  } else if (survey != null) {
-    throw new DbError('BAD_REQUEST', 'survey');
-  }
   const sid = kind === 'student' ? normalizeStudentId(studentId) : null;
   const tx = await beginTx(DRAW_STORES, 'readwrite'); // ← await はトランザクション作成前のみ
   return new Promise((resolve, reject) => {
@@ -321,8 +347,8 @@ export async function draw({ kind, studentId, survey }) {
     tx.oncomplete = () => resolve(result);
     tx.onabort = () => reject(failure || new DbError('DB_ERROR', tx.error?.name));
     tx.onerror = () => {};
-    const fail = (code) => {
-      failure = failure || new DbError(code);
+    const fail = (code, detail) => {
+      failure = failure || new DbError(code, detail);
       try { tx.abort(); } catch { /* noop */ }
     };
     try {
@@ -332,11 +358,20 @@ export async function draw({ kind, studentId, survey }) {
       const reqInv = invStore.getAll();
       const reqStudent = kind === 'student' ? tx.objectStore('students').get(sid) : null;
       whenAll([reqMeta, reqInv, reqStudent].filter(Boolean), () => {
-        // ここから同期処理のみ（pickPrize も同期）
+        // ここから同期処理のみ（pickPrize も normalizeConfig も同期）
         try {
           const m = metaMap(reqMeta.result);
-          const config = m.config;
-          if (!config) return fail('NOT_SETUP');
+          if (!m.config) return fail('NOT_SETUP');
+          const config = normalizeConfig(m.config); // v1 の保存データも v2 として扱う
+          // 参加の方法・アンケートの判定（不正なら、まだ何も書いていないので中止するだけ）
+          if (!config.entry[kind].enabled) return fail('BAD_REQUEST', 'entry');
+          let svy = null;
+          if (kind === 'guest' && config.survey.enabled) {
+            svy = normalizeSurvey(survey, { ages: config.survey.q1.options, triggers: config.survey.q2.options });
+            if (!svy) return fail('BAD_REQUEST', 'survey');
+          } else if (survey != null) {
+            return fail('BAD_REQUEST', 'survey');
+          }
           if (m.pendingDrawId) return fail('PENDING_EXISTS');
           const dayId = m.activeDayId;
           const dayIndex = config.days.findIndex((d) => d.id === dayId);
@@ -454,7 +489,7 @@ export function markBackup(at) {
   });
 }
 
-/** 全データを JSON 化できるオブジェクトにして返す（1つの readonly tx = 整合したスナップショット）。 */
+/** 全データを JSON 化できるオブジェクトにして返す（1つの readonly tx = 整合したスナップショット）。config は v2 に正規化して入れる。 */
 export async function exportAll() {
   const tx = await beginTx(STORES, 'readonly');
   const [meta, inventory, draws, students, logs] = await Promise.all(
@@ -464,16 +499,18 @@ export async function exportAll() {
     app: 'yosoro-gacha',
     schemaVersion: SCHEMA_VERSION,
     exportedAt: Date.now(),
-    meta, inventory, draws, students, logs,
+    meta: meta.map((r) => (r.key === 'config' && r.value ? { key: 'config', value: normalizeConfig(r.value) } : r)),
+    inventory, draws, students, logs,
   };
 }
 
 const isNonNegInt = (n) => Number.isInteger(n) && n >= 0;
 
-/** バックアップの検証（純粋関数）。{ok:true, summary} | {ok:false, error} */
+/** バックアップの検証（純粋関数）。{ok:true, summary} | {ok:false, error}。schemaVersion 1（v1 の config）と 2 を受け付ける。 */
 export function validateBackup(obj) {
   const bad = (error) => ({ ok: false, error });
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return bad('ファイルの形式が正しくありません');
+  if (obj.kind === 'profile') return bad('これは設定ファイルです（バックアップではありません）。「設定ファイルを読み込む」から読み込んでください');
   if (obj.app !== 'yosoro-gacha') return bad('このアプリのバックアップではありません');
   if (!Number.isInteger(obj.schemaVersion) || obj.schemaVersion < 1) return bad('バージョン情報がありません');
   if (obj.schemaVersion > SCHEMA_VERSION) return bad('新しいバージョンのバックアップです。アプリを更新してください');
@@ -485,11 +522,17 @@ export function validateBackup(obj) {
   const metaRows = obj.meta;
   if (!metaRows.every((r) => r && typeof r.key === 'string')) return bad('meta が正しくありません');
   const m = metaMap(metaRows);
-  const cfg = m.config;
-  if (!cfg || !Array.isArray(cfg.days) || !cfg.days.length || !Array.isArray(cfg.categories)
-      || !Array.isArray(cfg.prizes) || !cfg.studentIdRule || typeof cfg.pinHash !== 'string') {
+  const raw = m.config;
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.days) || !raw.days.length || !Array.isArray(raw.categories)
+      || !Array.isArray(raw.prizes) || !raw.studentIdRule || typeof raw.pinHash !== 'string') {
     return bad('設定（config）が正しくありません');
   }
+  // 開催日・賞・景品の整合：id があって重複せず、景品の賞が存在する（v1 の config も同じ見方）
+  const uniqueIds = (list) => list.every((x) => x && typeof x.id === 'string' && x.id) && new Set(list.map((x) => x.id)).size === list.length;
+  if (!uniqueIds(raw.days) || !uniqueIds(raw.categories) || !uniqueIds(raw.prizes)) return bad('設定（config）が正しくありません');
+  const cfg = normalizeConfig(raw); // v1 は v2 に補ってから見る（復元でも同じ正規化をして書く）
+  const catIds = new Set(cfg.categories.map((c) => c.id));
+  if (!cfg.prizes.every((p) => catIds.has(p.categoryId))) return bad('設定（config）が正しくありません');
   const dayIds = new Set(cfg.days.map((d) => d.id));
   const prizeIds = new Set(cfg.prizes.map((p) => p.id));
   if (!dayIds.has(m.activeDayId)) return bad('開催日の情報が正しくありません');
@@ -535,7 +578,7 @@ export function validateBackup(obj) {
   };
 }
 
-/** バックアップから復元（全置換・単一トランザクション）。 */
+/** バックアップから復元（全置換・単一トランザクション）。config は v2 に正規化して書く（v1 のバックアップは電波祭2026 の設定になる）。 */
 export async function importAll(obj) {
   const v = validateBackup(obj);
   if (!v.ok) throw new DbError('INVALID_BACKUP', v.error);
@@ -543,7 +586,7 @@ export async function importAll(obj) {
     for (const s of STORES) tx.objectStore(s).clear();
     for (const r of obj.meta) {
       if (r.key === 'lastBackupAt') continue;
-      tx.objectStore('meta').put({ key: r.key, value: r.value });
+      tx.objectStore('meta').put({ key: r.key, value: r.key === 'config' ? normalizeConfig(r.value) : r.value });
     }
     // 復元した内容 = バックアップ時点なので、バックアップ済みとして扱う
     tx.objectStore('meta').put({ key: 'lastBackupAt', value: obj.exportedAt ?? Date.now() });
@@ -557,6 +600,58 @@ export async function importAll(obj) {
     }
     addLog(tx, 'restore', { draws: obj.draws.length, students: obj.students.length, exportedAt: obj.exportedAt ?? null });
     ok(v.summary);
+  });
+}
+
+// ---------- 設定ファイル（イベント設定だけの JSON。docs/CUSTOMIZE.md §3.3） ----------
+/** 設定ファイルの中身（今の config と在庫の初期本数。js/profile.js exportProfile）。1つの readonly tx = 整合した内容。 */
+export async function exportProfileFile() {
+  const tx = await beginTx(['meta', 'inventory'], 'readonly');
+  const [row, inventory] = await Promise.all([reqP(tx.objectStore('meta').get('config')), reqP(tx.objectStore('inventory').getAll())]);
+  if (!row?.value) throw new DbError('NOT_SETUP');
+  return exportProfile(normalizeConfig(row.value), inventory);
+}
+
+/**
+ * 設定ファイルの読み込み（スタッフ画面。抽選履歴が1件も無いときだけ）。成功は新しい config。
+ * 今の PIN と効果音の設定は残す。在庫は初期本数で作り直し（残数＝初期本数・調整 0）、開催日は最初の日、連番はリセット。
+ * 失敗: INVALID_PROFILE（detail は理由）/ NOT_SETUP / HAS_DRAWS（履歴があれば何も書かない）
+ */
+export async function importProfile(fileObj) {
+  const v = validateProfileFile(fileObj);
+  if (!v.ok) throw new DbError('INVALID_PROFILE', v.error);
+  return runTx(STORES, 'readwrite', (tx, ok, fail) => {
+    const meta = tx.objectStore('meta');
+    const rc = meta.get('config');
+    const rn = tx.objectStore('draws').count();
+    whenAll([rc, rn], () => {
+      try {
+        if (!rc.result?.value) return fail('NOT_SETUP');
+        if (rn.result > 0) return fail('HAS_DRAWS');
+        const cur = normalizeConfig(rc.result.value);
+        const config = normalizeConfig({ ...v.config, pinHash: cur.pinHash, sound: cur.sound });
+        const inv = tx.objectStore('inventory');
+        inv.clear();
+        for (const d of config.days) {
+          for (const p of config.prizes) {
+            const n = v.initials[d.id][p.id];
+            inv.put({ key: `${d.id}:${p.id}`, dayId: d.id, prizeId: p.id, initial: n, remaining: n, adjust: 0 });
+          }
+        }
+        tx.objectStore('students').clear();
+        meta.put({ key: 'config', value: config });
+        meta.put({ key: 'activeDayId', value: config.days[0].id });
+        meta.put({ key: 'schemaVersion', value: SCHEMA_VERSION });
+        meta.put({ key: 'drawSeq', value: {} });
+        meta.put({ key: GAMJA_PRIZE_NAME_MIGRATION, value: true });   // 読み込んだ設定は移行の対象にしない
+        meta.delete('pendingDrawId');
+        meta.delete('lastBackupAt');
+        addLog(tx, 'profile-import', { eventId: config.eventId, days: config.days.length, prizes: config.prizes.length });
+        ok(config);
+      } catch (e) {
+        fail('DB_ERROR', e?.name);
+      }
+    });
   });
 }
 
