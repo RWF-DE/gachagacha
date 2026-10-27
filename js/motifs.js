@@ -30,7 +30,7 @@ const helm = `<g fill="${BODY}">
 const star = (cx, cy, ro, ri) => poly([...Array(10)].map((_, i) => { const [x, y] = pol(i % 2 ? ri : ro, i * 36); return [f(cx + x), f(cy + y)]; }));
 const capsule = `<g fill="${BODY}">
   <path fill-rule="evenodd" d="${ring(268, 230)}"/>
-  <path d="M-230 0A230 230 0 0 1 230 0Z"/>
+  <path d="M-232 0A232 232 0 0 1 232 0Z"/>
   <rect x="-286" y="-24" width="572" height="48" rx="24"/>
  </g>
  <g fill="${HL}"><path d="${star(0, 122, 74, 31)}"/></g>`;
