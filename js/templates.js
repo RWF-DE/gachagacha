@@ -81,7 +81,8 @@ const DENPASAI_2026 = {
   prizes: [
     { id: 'greenland', categoryId: 'sponsor', name: 'グリーンランド招待券', countUnknown: false },
     { id: 'ezo', categoryId: 'sponsor', name: 'E・ZO FUKUOKA招待券', countUnknown: false },
-    { id: 'bulldak', categoryId: 'sponsor', name: 'ブルダック炒め麺', countUnknown: false },
+    // id は既設端末の在庫キーと抽選履歴で使うため維持し、表示名だけ更新した（db.js migrateGamjaPrizeName）
+    { id: 'bulldak', categoryId: 'sponsor', name: 'カムジャ麺', countUnknown: false },
     { id: 'rare-ibaraki', categoryId: 'rare', name: '茨城コラボステッカー〈レア〉', countUnknown: true },
     { id: 'rare-denpasai', categoryId: 'rare', name: '電波祭ステッカー〈レア〉', countUnknown: false },
     { id: 'sticker-ibaraki', categoryId: 'sticker', name: '茨城コラボステッカー', countUnknown: true },
