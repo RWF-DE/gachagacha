@@ -3,6 +3,7 @@
 // （config.js・survey.js・db.js がここを import するので、循環させない）。
 // 公開：CONFIG_VERSION / PROFILE_VERSION / LIMITS / normalizeConfig / newId / nextDayId /
 //       planBoxSettings / exportProfile / validateProfileFile
+//       と、入力の検証に使う小さな道具 len / inRange / PRINTABLE / hasOwn（スタッフ画面も同じものを使う＝データ層と同じ数え方・判定になる）
 import { DEFAULT_TEMPLATE_ID, TIER_LATIN, YOSORO_TIER_LATIN, templateConfig } from './templates.js';
 
 export const CONFIG_VERSION = 2;
@@ -36,17 +37,17 @@ const EVENT_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const DAY_ID = /^day[0-9]{1,3}$/;          // 新しい開催日の id
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 const NOT_PRINTABLE = /[^\x20-\x7E]/g;     // 欧文の欄に入れられない字（フォントのサブセットに日本語が無い）
-const PRINTABLE = /^[\x20-\x7E]*$/;
+export const PRINTABLE = /^[\x20-\x7E]*$/;   // 欧文の欄に入れてよい字（印字可能な ASCII）
 const TIERS = ['sponsor', 'rare', 'sticker'];
 
 // ---------- 小さな道具 ----------
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+export const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const own = (o, k) => (isObj(o) && hasOwn(o, k) ? o[k] : undefined);   // 'constructor' などの継承プロパティを拾わない
 const clone = (v) => JSON.parse(JSON.stringify(v));
-const len = (s) => [...s].length;
+export const len = (s) => [...s].length;   // 文字数はコードポイント（LIMITS と同じ数え方）
 const clip = (s, max) => (len(s) > max ? [...s].slice(0, max).join('') : s);
-const inRange = (n, r) => n >= r.min && n <= r.max;
+export const inRange = (n, r) => n >= r.min && n <= r.max;
 const isInitial = (n) => Number.isInteger(n) && n >= 0 && n <= LIMITS.initialMax;
 const bool = (v, def) => (typeof v === 'boolean' ? v : def);
 

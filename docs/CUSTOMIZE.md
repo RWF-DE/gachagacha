@@ -75,7 +75,7 @@
 - 見出し（`survey.q*.heading`）の `/` は「ここで改行してよい」の印（表示しない。今の `jp()` と同じ）。`/` が無ければ `splitPhrases` で自動。
 - `tier` は演出の系統（派手さ）で、順位ではない。スタッフ画面の表示名：sponsor＝「特別（いちばん派手）」、rare＝「レア」、sticker＝「通常」。
 - `categories[].latin` は結果画面のヘッダ中央と協賛特別賞のタイトルカードに出る欧文（今の `SPONSOR AWARD` 等）。新しく作る賞の既定は `TIER_LATIN`（SPECIAL PRIZE / RARE PRIZE / PRIZE）。
-- id の採番（景品・賞・選択肢）：`newId(prefix, taken)` → `${prefix}-${Date.now().toString(36)}${連番}` のような、既存と重ならない英小文字・数字・ハイフン（prefix は英小文字・数字・ハイフンに直して 20字まで）。一度付けた id は変えない（抽選記録・アンケート記録が id で参照するため）。新しい開催日の id は `nextDayId(days)`。
+- id の採番（景品・賞・選択肢）：`newId(prefix, taken)` → `${prefix}-${Date.now().toString(36)}${連番}` のような、既存と重ならない英小文字・数字・ハイフン（prefix は英小文字・数字・ハイフンに直して 20字まで）。一度付けた id は変えない（抽選記録・アンケート記録が id で参照するため）。新しい開催日の id は `nextDayId(days)`（スタッフ画面の「日を追加」は、下書きの日に**保存済みの日の id も足して**渡す。最後の日を消してから足しても、消した日の id を使い回さない＝保存で「同じ日」と見なされて、その日の在庫の行〔残数・調整〕を引き継がない）。
 - 入力の上限（文字数・件数・本数）は `js/profile.js` の `LIMITS` に1か所で持つ。画面の `maxLength`・件数の判定と、`normalizeConfig` / `planBoxSettings` / `validateProfileFile` が同じ値を見る。
 
 ## 3. 互換性とデータ移行
@@ -156,7 +156,6 @@
 - `initials`（`{dayId:{prizeId:n}}`）：省いた日×景品は、既存の行なら変えず、新しい行なら 0 本。今と同じ値を渡す分は、抽選が始まった日でも何も起こらない。0〜100000 の整数以外は `BAD_REQUEST`（detail `initial`）。`db.saveBoxSettings` は、数値欄の文字列（`"12"`）を整数にして判定に渡す（`planBoxSettings` 自体は整数だけを受け付ける）。
 - 賞の欧文 `latin` を省くと、既存の賞は今のまま、新しい賞は `TIER_LATIN`。渡すときは印字可能な ASCII の 0〜24字。
 - 失敗の種類（`DbError.code`。detail は対象の id か、下の理由）：`NOT_SETUP`／`DAY_HAS_DRAWS`（日）／`PRIZE_HAS_DRAWS`（景品）／`DAY_LOCKED`（日）／`BAD_REQUEST`（`input` `initials` `days` `day-id` `day-label` `days-order` `categories` `category-id` `category-name` `category-tier` `category-latin` `prizes` `prize-id` `prize-name` `prize-category` `initial`）。失敗したら何も書かない。
-- 既存の `savePrizeSettings`（賞・景品の名前、本数未定、初期本数だけを渡す旧い入力）は互換のため残してある。今の config・在庫から作った一覧に渡された変更を混ぜ、`saveBoxSettings` と同じ判定（`planBoxSettings`）と保存を使う（ログの種類は `prize-settings`）。
 
 ## 5. 見た目：テーマ（配色）
 
@@ -252,7 +251,7 @@
 
 ```
 js/templates.js  テンプレート（データ）。他のモジュールを import しない
-js/profile.js    normalizeConfig・LIMITS・planBoxSettings・設定ファイルの書き出し/検証・newId / nextDayId（純粋関数。import は templates.js だけ）
+js/profile.js    normalizeConfig・LIMITS・planBoxSettings・設定ファイルの書き出し/検証・newId / nextDayId・len / inRange / PRINTABLE / hasOwn（入力検証の小さな道具。スタッフ画面も使う）（純粋関数。import は templates.js だけ）
 js/theme.js      THEMES・resolveTheme・applyTheme・contrast / contrastReport（applyTheme 以外は DOM に触れない）
 js/motifs.js     MOTIFS（データ）・getMotif・motifPreviewSvg
 js/config.js     定数。createDefaultConfig() = テンプレート denpasai-2026 を正規化したもの。SURVEY_* は templates.js から再エクスポート
@@ -297,7 +296,7 @@ js/admin.js      §8
 - **`validateProfileFile` は、正規化の前の中身で開催日・賞・景品を見る**（件数・id の形・重複・名前の長さ・景品の賞）。案は「正規化後に整合を満たすこと」。外から来るファイルを黙って直さず、理由つきで断るため。
 - **選択肢の `label` の重複は、データ層（`normalizeConfig`）では検証しない**（id の重複だけ、先のものを残す）。案は「label 重複なし」を設定の制約にしていた。重複を断るのは編集画面（「同じ名前の選択肢があります」）。
 - **`normalizeConfig` は、id が無い開催日・賞・景品を捨て、名前が空なら補う**（§3.1）。案は「欠けた値の補完だけ」。
-- **数値欄の文字列を整数にするのは `db.saveBoxSettings`**（`planBoxSettings` は整数だけ）。`savePrizeSettings` は `saveBoxSettings` を呼ぶのではなく、同じ判定（`planBoxSettings`）と保存を共有する。
+- **数値欄の文字列を整数にするのは `db.saveBoxSettings`**（`planBoxSettings` は整数だけ）。景品設定だけを渡す旧い入力 `savePrizeSettings` は、画面から使われなくなったので削除した。
 - `importProfile` は最終バックアップの時刻も消す（案は在庫・開催日・連番だけ）。
 
 ### 見た目の層
@@ -307,8 +306,8 @@ js/admin.js      §8
 - **名前の自動割り付けの縦の間隔は 59px（縦置きの帯は 56px）**。案は「横置き 41px・41px」。手詰めの間隔（約 58px。DESIGN.md §10）に合わせた値。
 
 ### スタッフ画面とセットアップ（§8）
-- **セットアップの手順3「イベントの基本」は、案の項目に加えて「ロゴの文字（和／欧文）」も聞く**。帯の文字と景品の呼び方は「イベント」タブだけ。配色と回すものは、タップする見本ではなく**プルダウン**（選ぶと、このスタッフ画面の配色にもすぐ反映する。設定ファイルにカスタム色があれば「カスタム（設定ファイルの色）」が選べる）。手順1でテンプレートを選んだときも、その配色をすぐ反映する。
-- **削除ボタン（景品・賞・開催日）は、できないときも隠さず、押せない状態で出して理由を添える**。理由は、開催日と賞は画面の文字、景品は「抽選済みの景品です…」の行とボタンの `title`（景品を「最低1つ」残す理由は `title` だけ）。
+- **セットアップの手順3「イベントの基本」は、案の項目に加えて「ロゴの文字（和／欧文）」も聞く**。帯の文字と景品の呼び方は「イベント」タブだけ。配色と回すものは、タップする見本ではなく**プルダウン**（選ぶと、このスタッフ画面の配色にもすぐ反映する。設定ファイルにカスタム色があれば「カスタム（設定ファイルの色）」が選べる）。手順1でテンプレートを選んだときも、その配色をすぐ反映する（セットアップを開いたときも、選ばれている既定のテンプレートの配色にそろえる。全初期化のあとに前のイベントの配色が残らない）。
+- **削除ボタン（景品・賞・開催日）は、できないときも隠さず、押せない状態で出して理由を添える**。理由は、開催日・賞・景品とも画面の文字（景品は行の下に「抽選済みの景品です…」「景品は1つ以上必要です」）で、ボタンの `title` にも同じ理由を付ける（`title` だけだと iPad では見えない）。
 - **「景品・日程」の保存は、スクロールの外の下端の帯（`.admin-foot`）に置く**（長い一覧でもいつでも押せる）。「保存する」・「未保存の変更があります」の札・エラー文が並ぶ。案は「保存」をタブの中に書いていた。
 - **セットアップの手順4の編集部品にも「開催日」のカードがある**（名前・日を追加・最後の日を削除）。手順3の開催日数と、手順4の開催日のカードは、**同じ下書き**を編集する。名前の既定「当日」⇔「1日目」「2日目」…は、まだ触っていない既定の名前のときだけ入れ替える。案は日数を手順3だけで決める書き方だった。
 - **PIN の手順に「戻る」がある**（案は「今と同じ」）。PIN を決めたあとで戻ってきたときは「PINは決めてあります。そのまま「次へ」で進めます」と出す。手順の番号の表示（N/M と番号の枠）は、飛ばした手順を数えない（学生が参加しない設定では 1/5〜5/5）。

@@ -453,6 +453,9 @@ try {
           assert.deepEqual(r.bad, [], `${w}x${h} ${screen}: ${r.bad.join(', ')}`);
           assert.equal(r.n, screen === 'age' ? CFG.SURVEY_AGES.length : CFG.SURVEY_TRIGGERS.length);
           assert.equal(r.scroll, false, `${w}x${h} ${screen}: スクロールが必要`);
+          // 列・行の数の CSS 変数は選択肢の個数から（既定：Q1 は 10 個＝2 行 × 5 列で字の大きさは CSS の既定のまま〔--lbs なし〕、Q2 は 8 個＝4 行）
+          const vars = await page.$eval('.sv-grid', (el) => Object.fromEntries(['--cl', '--rl', '--rp', '--lbs', '--rows'].map((k) => [k, el.style.getPropertyValue(k)])));
+          assert.deepEqual(vars, screen === 'age' ? { '--cl': '5', '--rl': '2', '--rp': '5', '--lbs': '', '--rows': '' } : { '--cl': '', '--rl': '', '--rp': '', '--lbs': '', '--rows': '4' }, `${w}x${h} ${screen}: 列・行の CSS 変数`);
         }
         // 次のサイズは Q1 から測り直す
         await page.click(tid('back'));
@@ -996,8 +999,20 @@ try {
       await press(1000);                                        // 演出の最中の長押し（0.4秒で成立する）
       await sleep(300);
       assert.equal(await p3.locator(`${tid('pin-ok')}, ${tid('admin')}`).count(), 0, '演出の最中はスタッフ画面が開かない');
+      // 演出の最中の resize では、ヘッダ帯を測り直さない（DESIGN.md §10「性能」）。fitHeader はロゴの文字の style を消してから測るので、
+      // 目印の style を付けておいて消えなければ測っていない。この時点の state は 'result'（'drawing' ではない）なので、revealing を見ていないと測ってしまう
+      const resizeProbe = () => p3.evaluate(() => {
+        const lt = document.querySelector('#logo .logo-text');
+        lt.setAttribute('style', '--probe: 1');
+        window.dispatchEvent(new Event('resize'));
+        return lt.getAttribute('style');
+      });
+      assert.equal(await p3.locator(tid('ok-button')).count(), 0, '（まだ演出の最中）');
+      assert.equal(await resizeProbe(), '--probe: 1', '演出の最中の resize ではヘッダ帯（fitHeader）を測らない');
+      assert.equal(await p3.locator(tid('ok-button')).count(), 0, '（確認のあいだも演出は続いていた）');
       await p3.waitForSelector(tid('ok-button'), { timeout: 20000 });   // 演出が終わり、スタッフのボタンが出る
       await sleep(300);
+      assert.equal(await resizeProbe(), null, '演出が終わったあとの resize は、いつもどおりヘッダ帯を測り直す（目印の style を消す）');
       await press(1000);
       await p3.waitForSelector(tid('pin-ok'), { timeout: 3000 });       // 結果を表示して確認待ちのあいだは開ける（未確認の抽選の確認・復旧のため）
       await p3.click(tid('pin-cancel'));

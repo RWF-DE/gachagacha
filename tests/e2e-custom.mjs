@@ -163,6 +163,18 @@ async function motifsOf(selector) {
     return Object.entries(all).filter(([, svg]) => probe(svg) === el.innerHTML).map(([id]) => id);
   }, { sel: selector, all: Object.fromEntries(Object.entries(MOTIFS).map(([id, m]) => [id, m.svg])) });
 }
+/**
+ * セレクタの <svg>（スタッフ画面・セットアップの回すものの見本）が、motifPreviewSvg(id, opts) の出力そのものか。
+ * 色は motifPreviewSvg に渡して描かせる（作ったあとに style を書き足さない）。ページ内で同じ向きに解析して比べる。
+ */
+async function isPreviewOf(selector, id, opts) {
+  return page.evaluate(async ({ sel, id, opts }) => {
+    const { motifPreviewSvg } = await import('/js/motifs.js');
+    const probe = document.createElement('div');
+    probe.innerHTML = motifPreviewSvg(id, opts);
+    return document.querySelector(sel).outerHTML === probe.firstElementChild.outerHTML;
+  }, { sel: selector, id, opts });
+}
 /** #wheel の中身と一致する回すものの id の一覧（ページ内で同じ向きに解析して比べる）。ちょうど 1 つのはず */
 async function motifsInSymbol() {
   return page.evaluate((all) => {
@@ -424,6 +436,8 @@ try {
       assert.deepEqual(await page.$$eval(`[data-testid="setup-template-${tpl}"] .th-chips i`, (els) => els.map((e) => getComputedStyle(e).backgroundColor)),
         ['paper', 'main', 'ink', 'accent'].map((k) => rgbCss(THEMES[theme][k])), `${tpl} の札の配色`);
       assert.deepEqual(await motifsOf(`[data-testid="setup-template-${tpl}"] .motif-svg svg`), [motif], `${tpl} の札の回すもの`);
+      assert.ok(await isPreviewOf(`[data-testid="setup-template-${tpl}"] .motif-svg svg`, motif, { size: 72, wc: THEMES[theme].main, hl: THEMES[theme].accent }),
+        `${tpl} の札の見本は motifPreviewSvg の出力そのまま（そのテンプレートの配色で描く）`);
     }
     await page.click(tid('setup-template-generic'));
     assert.equal(await attr('setup-template-generic', 'aria-pressed'), 'true');
@@ -775,6 +789,38 @@ try {
   });
 
   // ===================================================================
+  await step('[1] 新しく作る設定は、カムジャ麺への名称移行の対象にしない：セットアップで景品 bulldak を「ブルダック炒め麺」にしても、書き換えられない', async () => {
+    const OLD = 'ブルダック炒め麺';
+    const MIGRATED = 'カムジャ麺';
+    use(await newDevice({ name: 'G' }));
+    await page.goto(URL_FAST);
+    await page.waitForSelector(tid('setup-next'));
+    await page.click(tid('setup-next'));               // 既定のテンプレート（電波祭2026）のまま
+    await page.waitForSelector(tid('pin-ok'));
+    await typePin(PIN); await typePin(PIN);
+    await page.waitForSelector(tid('setup-brand-name'));
+    await page.click(tid('setup-next'));
+    await page.waitForSelector(tid('bx-pname-bulldak'));
+    assert.equal(await val('bx-pname-bulldak'), MIGRATED, '（前提）テンプレートの景品名はカムジャ麺');
+    await page.fill(tid('bx-pname-bulldak'), OLD);     // 新しいイベントが、あえて旧い名前を使う
+    await page.click(tid('setup-next'));
+    await page.waitForSelector(tid('rule-min'));       // 学生が有効なので学籍番号のルールの手順がある
+    await page.click(tid('setup-next'));
+    await page.waitForSelector(tid('setup-start'));
+    await page.click(tid('setup-start'));
+    await waitScreen('choose');                         // 起動時の refresh() は移行を呼ぶ
+    const bulldak = async () => metaVal(await dumpDb(), 'config').prizes.find((p) => p.id === 'bulldak').name;
+    let d = await dumpDb();
+    assert.equal(await bulldak(), OLD, '新しく作った設定の景品名は書き換えられない');
+    assert.equal(metaVal(d, 'migration:gamja-prize-name-v1'), true, 'セットアップが「移行済み」の印を付ける');
+    assert.equal(d.logs.some((l) => l.type === 'prize-name-migration'), false, '名称移行のログは無い');
+    await page.reload();
+    await waitScreen('choose');
+    assert.equal(await bulldak(), OLD, '再読み込み（起動時の移行）でも書き換えられない');
+    assert.equal(metaVal(await dumpDb(), 'migration:gamja-prize-name-v1'), true);
+  });
+
+  // ===================================================================
   await step('[2] 参加の方法（イベントタブ）：学生だけ／一般の方だけ（アンケートなし）／両方オフは保存できない', async () => {
     await ensureA();
     await backToChoose();
@@ -959,6 +1005,8 @@ try {
       assert.equal(await page.isDisabled(tid(`pinit-day2-${p.id}`)), false, 'まだ抽選の無い日は編集できる');
     }
     assert.ok((await attr(`bx-pdel-${first.prizeId}`, 'title')).includes('抽選済みのため削除できません'), '理由が付く');
+    assert.ok(squash(await text(`bx-pwhy-${first.prizeId}`)).includes('抽選済みの景品です'), '理由は title だけでなく画面にも出る');
+    for (const p of cfg.prizes) assert.equal(await count(`bx-pwhy-${p.id}`), drawn.has(p.id) ? 1 : 0, `${p.name}：理由が出るのは削除できない景品だけ`);
     assert.equal(await page.locator('.bx-lock').count() > 0, true, '「変更不可」の札');
     assert.equal(await page.isDisabled(tid('bx-day-remove')), false, '抽選の無い最後の日（2日目）は消せる');
 
@@ -1250,6 +1298,67 @@ try {
   });
 
   // ===================================================================
+  await step('[3] 景品・日程の下書き：最後の日を消してから日を足しても消した日の id を使い回さない（残数・調整を引き継がない）／景品が最後の1つのとき、消せない理由を画面に出す', async () => {
+    use(await newDevice({ name: 'F' }));
+    await page.goto(URL_FAST);
+    // 既定（電波祭2026：2日・景品7つ）を直接作る。2日とも同じ初期本数＝日を足すときにコピーされる1日目の値が、消す2日目の値と一致する（引き継ぎが起きやすい形）
+    await page.evaluate(async ({ pinHash }) => {
+      const c = await import('/js/config.js'); const m = await import('/js/db.js');
+      const config = c.createDefaultConfig(); config.pinHash = pinHash;
+      await m.initialize({ config, activeDayId: 'day1', initials: c.createDefaultInitials() });
+    }, { pinHash: pinHashOf(PIN) });
+    await page.goto(URL_FAST);
+    await waitScreen('choose');
+    let d = await dumpDb();
+    const cfg = metaVal(d, 'config');
+    const pid = cfg.prizes[0].id;
+    for (const p of cfg.prizes) assert.equal(invMap(d)[`day2:${p.id}`].initial, invMap(d)[`day1:${p.id}`].initial, `（前提）2日の初期本数は同じ ${p.id}`);
+
+    // 2日目（最後の日・抽選なし・開催中でもない）の残数を ±調整する：調整 +5・残数 8。これが「消した日の行」
+    await openAdmin('inventory');
+    await adjustTo('day2', pid, invMap(d)[`day2:${pid}`].initial + 5);
+    d = await dumpDb();
+    assert.deepEqual([invMap(d)[`day2:${pid}`].remaining, invMap(d)[`day2:${pid}`].adjust], [invMap(d)[`day2:${pid}`].initial + 5, 5], '（前提）調整済みの行');
+
+    // 最後の日を消して、日を足してから保存する：新しい日の id は day2 ではなく day3
+    await gotoTab('prizes');
+    await page.click(tid('bx-day-remove'));
+    assert.equal(await count('bx-day-day2'), 0, '最後の日（day2）が下書きから消えた');
+    await page.click(tid('bx-day-add'));
+    assert.equal(await count('bx-day-day2'), 0, '消した日の id（day2）を使い回さない');
+    assert.equal(await count('bx-day-day3'), 1, '新しい日は day3');
+    assert.equal(await val('bx-day-day3'), '2日目');
+    for (const p of cfg.prizes) assert.equal(await val(`pinit-day3-${p.id}`), await val(`pinit-day1-${p.id}`), `初期本数は1日目と同じ値から ${p.id}`);
+    await page.click(tid('prizes-save'));
+    await toastIs(/保存しました/);
+    await page.waitForFunction(() => !document.querySelector('[data-testid="tab-prizes"]')?.textContent.includes('読み込み中'));
+    d = await dumpDb();
+    assert.deepEqual(metaVal(d, 'config').days, [{ id: 'day1', label: '1日目' }, { id: 'day3', label: '2日目' }]);
+    assert.equal(d.inventory.some((r) => r.dayId === 'day2'), false, '消した日の在庫の行は残らない');
+    assert.equal(d.inventory.length, cfg.prizes.length * 2);
+    for (const p of cfg.prizes) {
+      const r = invMap(d)[`day3:${p.id}`];
+      const n = invMap(d)[`day1:${p.id}`].initial;
+      assert.deepEqual([r.initial, r.remaining, r.adjust], [n, n, 0], `新しい日は新品の行（残数＝初期本数・調整 0）${p.id}`);
+    }
+    const lg = lastLog(d, 'box-settings').detail;
+    assert.ok(lg.some((c) => c.day === 'day3' && c.add === '2日目') && lg.some((c) => c.day === 'day2' && c.remove === '2日目'), `日の追加と削除がログに残る: ${JSON.stringify(lg)}`);
+
+    // 景品が最後の1つになった下書き（保存はしない）：削除できない理由を、ボタンの title だけでなく画面にも出す（iPad は title を見られない）
+    const ids = cfg.prizes.map((p) => p.id);
+    for (const other of ids.slice(1)) {
+      assert.equal(await count(`bx-pwhy-${other}`), 0, '景品が複数あるうちは理由は出ない');
+      await page.click(tid(`bx-pdel-${other}`));
+    }
+    const why = `景品は${LIMITS.prizes.min}つ以上必要です`;
+    assert.equal(await page.isDisabled(tid(`bx-pdel-${pid}`)), true, '最後の1つは削除できない');
+    assert.equal(squash(await text(`bx-pwhy-${pid}`)), why, '理由が画面に出る');
+    assert.equal(await page.isVisible(tid(`bx-pwhy-${pid}`)), true);
+    assert.equal(await attr(`bx-pdel-${pid}`, 'title'), why, 'title にも同じ理由');
+    assert.equal(await page.locator(`${tid(`bx-card-${cfg.prizes[0].categoryId}`)} ${tid(`bx-pwhy-${pid}`)}`).count(), 1, '理由はその景品の行にある');
+  });
+
+  // ===================================================================
   /**
    * アンケートタブの集計が、DB の一般の抽選の回答と一致することを確かめる（スコープは「全日程」か日の id）。
    * 選択肢の行は「今の選択肢」→「記録にだけ残る旧選択肢（保存時のラベル・「旧選択肢」の札）」の順。
@@ -1535,6 +1644,7 @@ try {
       if (document.documentElement.scrollHeight > vh + 1) bad.push('scroll');
       return bad;
     }, expectN);
+    const gridVars = () => page.$eval('.sv-grid', (el) => Object.fromEntries(['--cl', '--rl', '--rp', '--lbs', '--rows'].map((k) => [k, el.style.getPropertyValue(k)])));
     for (const [w, h] of [[1180, 820], [1024, 768], [820, 1180]]) {
       await page.setViewportSize({ width: w, height: h });
       await page.reload();
@@ -1543,10 +1653,13 @@ try {
       await waitScreen('survey-age');
       await settle();
       assert.deepEqual(await fitProblems(LIMITS.q1Options.max), [], `最大の構成 Q1 ${w}×${h}`);
+      // 列・行の数と字の大きさの CSS 変数は選択肢の個数から（Q1 は 12 個＝2 行 × 6 列・ラベル 165÷6≒28px、Q2 は 10 個＝5 行）
+      assert.deepEqual(await gridVars(), { '--cl': '6', '--rl': '2', '--rp': '6', '--lbs': '28px', '--rows': '' }, `Q1 の列・行の変数 ${w}×${h}`);
       await page.click(tid(`age-${cfg.survey.q1.options[0].id}`));
       await waitScreen('survey-trigger');
       await settle();
       assert.deepEqual(await fitProblems(LIMITS.q2Options.max), [], `最大の構成 Q2 ${w}×${h}`);
+      assert.deepEqual(await gridVars(), { '--cl': '', '--rl': '', '--rp': '', '--lbs': '', '--rows': '5' }, `Q2 の行の変数 ${w}×${h}`);
       await page.click(tid('back'));
       await waitScreen('survey-age');
       await page.click(tid('back'));
@@ -1632,6 +1745,7 @@ try {
     await page.click(tid('dlg-ok'));
     await page.waitForSelector(tid('setup-restore'), { timeout: 10000 });
     assert.equal(await attr('setup-template-denpasai-2026', 'aria-pressed'), 'true');
+    await assertTheme(THEMES.yosoro, '全初期化のあとのセットアップは、選ばれている既定のテンプレート（よーそろ）の配色で始まる（前のイベントのカスタム配色を引きずらない）');
     await page.setInputFiles(tid('setup-profile-file'), profilePath);
     await page.waitForFunction(() => !document.querySelector('[data-testid="setup-profile-info"]').hidden);
     assert.equal(squash(await text('setup-profile-info')), `設定ファイルを読み込みました：${cfg.brand.name}（${cfg.eventName}）・開催日 ${cfg.days.length}日・景品 ${cfg.prizes.length}個`);
@@ -2041,6 +2155,11 @@ try {
     const cfgGuestTitle0 = metaVal(await dumpDb(), 'config').entry.guest.title;
 
     await openAdmin('event');
+    // 回すものの見本は motifPreviewSvg の出力そのまま（色は 'var(--main)' / 'var(--accent)' を渡して描かせる＝そのときの配色で描かれる。作ったあとに style を書き足さない）
+    for (const id of Object.keys(MOTIFS)) {
+      assert.ok(await isPreviewOf(`[data-testid="motif-${id}"] .motif-svg svg`, id, { size: 72, wc: 'var(--main)', hl: 'var(--accent)' }), `${id}：回すものの見本`);
+    }
+    assert.ok(await isPreviewOf('[data-testid="theme-preview"] .motif-svg svg', metaVal(await dumpDb(), 'config').motif, { size: 96, wc: 'var(--main)', hl: 'var(--accent)' }), '配色の見本の中の回すもの');
     // --- 全プリセット：タップですぐ保存・反映（スタッフ画面の配色も変わる）---
     for (const id of ids) {
       await page.click(tid(`theme-${id}`));

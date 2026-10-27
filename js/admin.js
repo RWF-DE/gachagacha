@@ -5,7 +5,7 @@ import { validateBackup } from './db.js';
 import { PIN_MIN, PIN_MAX } from './config.js';
 import { splitPhrases } from './poster.js';
 import { aggregateSurvey, ageLabelOf, triggerLabelsOf, pct, UNANSWERED } from './survey.js';
-import { LIMITS, newId, nextDayId, normalizeConfig, validateProfileFile } from './profile.js';
+import { LIMITS, len, inRange, PRINTABLE, hasOwn, newId, nextDayId, normalizeConfig, validateProfileFile } from './profile.js';
 import { TEMPLATES, DEFAULT_TEMPLATE_ID, TIER_LATIN, templateConfig } from './templates.js';
 import { THEMES, resolveTheme, applyTheme, contrastReport } from './theme.js';
 import { MOTIFS, motifPreviewSvg } from './motifs.js';
@@ -16,11 +16,6 @@ const root = document.getElementById('admin-root');
 let closeResolve = null;
 
 // ---------- 共通 ----------
-const len = (s) => [...s].length;                       // 文字数はコードポイント（LIMITS と同じ数え方）
-const PRINTABLE = /^[\x20-\x7E]*$/;                     // 欧文の欄に入れてよい字（印字可能な ASCII）
-const inRange = (n, r) => n >= r.min && n <= r.max;
-const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-
 const ERR_TEXT = {
   PENDING_EXISTS: '未確認の抽選があります。先にスタッフ確認（OK）を済ませてください',
   NEGATIVE: '残数がマイナスになるため調整できません',
@@ -51,7 +46,7 @@ function errText(e, names = {}) {
   if (code === 'DAY_HAS_DRAWS') return day ? `「${day}」の初期本数は変更できません。在庫の±調整を使ってください` : ERR_TEXT.DAY_HAS_DRAWS;
   if (code === 'PRIZE_HAS_DRAWS') return prize ? `「${prize}」は抽選済みのため削除できません。残数を0にしてください` : ERR_TEXT.PRIZE_HAS_DRAWS;
   if (code === 'DAY_LOCKED') return day ? `「${day}」は抽選がある日・開催中の日のため削除できません` : ERR_TEXT.DAY_LOCKED;
-  if (code === 'BAD_REQUEST') return (own(BAD_TEXT, String(e.detail)) && BAD_TEXT[e.detail]) || ERR_TEXT.BAD_REQUEST;
+  if (code === 'BAD_REQUEST') return (hasOwn(BAD_TEXT, String(e.detail)) && BAD_TEXT[e.detail]) || ERR_TEXT.BAD_REQUEST;
   if (code === 'INVALID_PROFILE' && e.detail) return `設定ファイルが正しくありません：${e.detail}`;
   return ERR_TEXT[code] || '保存できませんでした';
 }
@@ -130,19 +125,16 @@ function flag(el) {
   try { el.scrollIntoView({ block: 'center' }); el.focus({ preventScroll: true }); } catch { /* noop */ }
 }
 
-/** モチーフの見本（<svg>）。色は '#rrggbb' でも 'var(--main)' でもよい（motifPreviewSvg は固定色しか通さないので、色は作ったあとに style へ入れる）。 */
+/** モチーフの見本（<svg>）。色は '#rrggbb' でも 'var(--main)' でもよい。 */
 function motifIcon(id, size, wc, hl) {
   const box = h('span', { class: 'motif-svg', 'aria-hidden': 'true' });
-  box.innerHTML = motifPreviewSvg(id, { size });
-  const svg = box.firstElementChild;
-  svg.style.setProperty('--wc', wc);
-  svg.style.setProperty('--hl', hl);
+  box.innerHTML = motifPreviewSvg(id, { size, wc, hl });
   return box;
 }
 const chips = (colors) => h('span', { class: 'th-chips', 'aria-hidden': 'true' },
   ['paper', 'main', 'ink', 'accent'].map((k) => h('i', { style: { backgroundColor: colors[k] } })));
-const themeLabel = (t) => (t?.custom ? 'カスタム' : (own(THEMES, t?.preset) ? THEMES[t.preset].label : THEMES.yosoro.label));
-const motifLabel = (id) => (own(MOTIFS, id) ? MOTIFS[id] : MOTIFS.helm).label;
+const themeLabel = (t) => (t?.custom ? 'カスタム' : (hasOwn(THEMES, t?.preset) ? THEMES[t.preset].label : THEMES.yosoro.label));
+const motifLabel = (id) => (hasOwn(MOTIFS, id) ? MOTIFS[id] : MOTIFS.helm).label;
 
 // ---------- 入口 ----------
 export async function open() {
@@ -415,7 +407,8 @@ function createBoxEditor({ draft, wizard = false, drawnDays = new Set(), drawnPr
     : st.cats.length <= LIMITS.categories.min ? `賞は${LIMITS.categories.min}つ以上必要です` : '');
 
   function addDay() {
-    const nid = nextDayId(st.days);
+    // 保存済みの日の id は、下書きで消したあとも使い回さない（同じ id だと保存で「同じ日」と見なされ、その日の在庫の行〔残数・調整〕を引き継いでしまう）
+    const nid = nextDayId([...st.days, ...[...savedDays].map((id) => ({ id }))]);
     if (!nid || dayAddWhy()) return;
     const first = st.days[0];
     if (st.days.length === 1 && first.label.trim() === '当日') first.label = '1日目';   // 1日→2日：「当日」は「1日目」に
@@ -494,8 +487,9 @@ function createBoxEditor({ draft, wizard = false, drawnDays = new Set(), drawnPr
     const unk = h('input', { type: 'checkbox', checked: p.countUnknown, 'data-testid': `bx-unk-${p.id}` });
     unk.addEventListener('change', () => { p.countUnknown = unk.checked; paintUnk(); changed(); });
     const delWhy = prizeDelWhy(p.id);
+    const rowWhy = drawnPrizes.has(p.id) ? '抽選済みの景品です（削除できません。残数を0にしてください）' : delWhy;   // 削除できない理由は画面にも出す（title は iPad では見られない）
     return h('tr', {},
-      h('td', { class: 'l' }, nameIn, unkNote, drawnPrizes.has(p.id) ? h('div', { class: 'bx-why' }, '抽選済みの景品です（削除できません。残数を0にしてください）') : null),
+      h('td', { class: 'l' }, nameIn, unkNote, rowWhy ? h('div', { class: 'bx-why', 'data-testid': `bx-pwhy-${p.id}` }, rowWhy) : null),
       ...st.days.map((d) => {
         const cell = numInput(st.init[d.id][p.id], {
           max: LIMITS.initialMax, disabled: locked(d.id), 'aria-label': `${labelOfDay(d.id)}の初期本数`,
@@ -760,7 +754,7 @@ function buildThemeCard(ev) {
     warn.dataset.ok = String(rep.every((r) => r.ok));
   }
   function paintAll() {
-    const active = ev.theme.custom ? null : (own(THEMES, ev.theme.preset) ? ev.theme.preset : 'yosoro');
+    const active = ev.theme.custom ? null : (hasOwn(THEMES, ev.theme.preset) ? ev.theme.preset : 'yosoro');
     for (const b of presetBtns) b.setAttribute('aria-pressed', String(b.dataset.testid === `theme-${active}`));
     state.textContent = ev.theme.custom ? 'いまはカスタムの配色です' : `いまは「${themeLabel(ev.theme)}」です`;
     for (const [k] of ROLES) inputs[k].value = custom[k];
@@ -823,7 +817,7 @@ function buildMotifCard(ev, onChange) {
       toast('回すものを変えました');
     },
   }, motifIcon(mid, 72, 'var(--main)', 'var(--accent)'), labelParts(m.label)));
-  const paint = () => { const cur = own(MOTIFS, ev.motif) ? ev.motif : 'helm'; for (const b of btns) b.setAttribute('aria-pressed', String(b.dataset.testid === `motif-${cur}`)); };
+  const paint = () => { const cur = hasOwn(MOTIFS, ev.motif) ? ev.motif : 'helm'; for (const b of btns) b.setAttribute('aria-pressed', String(b.dataset.testid === `motif-${cur}`)); };
   paint();
   return card('回すもの',
     h('p', { class: 'a-note' }, '抽選画面で回す図形です。待機画面・結果画面の飾りも同じ図形になります。タップすると、すぐ保存します。'),
@@ -1399,6 +1393,7 @@ const fromTemplate = (tplId) => { const t = templateConfig(tplId); return { conf
 export function openSetup() {
   return new Promise((resolve) => {
     const draft = { templateId: DEFAULT_TEMPLATE_ID, profileName: null, ...fromTemplate(DEFAULT_TEMPLATE_ID), pin: null, activeDayId: 'day1' };
+    showTheme(draft.config.theme);   // 選ばれている既定のテンプレートの配色にそろえる（全初期化のあと、前のイベントの配色を引きずらない）
     const steps = [
       { title: 'はじめかた', run: stepWelcome },
       { title: 'PIN', run: stepPin },
@@ -1524,7 +1519,7 @@ function stepBasics({ content, nav, draft, next, prev }) {
 
   // 配色・回すもの：選ぶとすぐ、このスタッフ画面にも見せる（決定は「次へ」で draft に入る＝選んだ時点で draft に入れる）
   const keptTheme = cfg.theme.custom ? { preset: cfg.theme.preset, custom: cfg.theme.custom } : null;   // 設定ファイルのカスタム配色（あれば選び直せるよう取っておく）
-  const themeVal = () => (cfg.theme.custom ? '__custom' : (own(THEMES, cfg.theme.preset) ? cfg.theme.preset : 'yosoro'));
+  const themeVal = () => (cfg.theme.custom ? '__custom' : (hasOwn(THEMES, cfg.theme.preset) ? cfg.theme.preset : 'yosoro'));
   const themeSel = h('select', { class: 'sel', 'data-testid': 'setup-theme', 'aria-label': '配色' },
     Object.entries(THEMES).map(([k, t]) => h('option', { value: k, selected: themeVal() === k }, t.label)),
     keptTheme ? h('option', { value: '__custom', selected: true }, 'カスタム（設定ファイルの色）') : null);
@@ -1536,7 +1531,7 @@ function stepBasics({ content, nav, draft, next, prev }) {
     paintTheme();
   });
   paintTheme();
-  const motifVal = () => (own(MOTIFS, cfg.motif) ? cfg.motif : 'helm');
+  const motifVal = () => (hasOwn(MOTIFS, cfg.motif) ? cfg.motif : 'helm');
   const motifSel = h('select', { class: 'sel', 'data-testid': 'setup-motif', 'aria-label': '回すもの' },
     Object.entries(MOTIFS).map(([k, m]) => h('option', { value: k, selected: motifVal() === k }, m.label)));
   const motifView = h('span', { class: 'wz-motif' });

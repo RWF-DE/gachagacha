@@ -309,13 +309,10 @@ export function surveyAgeScreen({ survey, brand, selected, onSelect, onBack }) {
   const n = q.options.length;
   const rowsL = n <= 5 ? 1 : 2;
   const colsL = Math.ceil(n / rowsL);
-  const grid = h('div', { class: 'sv-grid sv-age', role: 'radiogroup', 'aria-label': q.short });
-  // CSS 変数は setProperty で入れる（h() の style は Object.assign なので --xxx は書けない）
-  grid.style.setProperty('--cl', String(colsL));
-  grid.style.setProperty('--rl', String(rowsL));
-  grid.style.setProperty('--rp', String(Math.ceil(n / 2)));
+  const vars = { '--cl': colsL, '--rl': rowsL, '--rp': Math.ceil(n / 2) };
   // ラベルの大きさは列の数から（5列で 33px。列が増えるとチップが狭くなるので小さく、減ると大きく）
-  if (colsL !== 5) grid.style.setProperty('--lbs', `${Math.max(26, Math.min(44, Math.round(165 / colsL)))}px`);
+  if (colsL !== 5) vars['--lbs'] = `${Math.max(26, Math.min(44, Math.round(165 / colsL)))}px`;
+  const grid = h('div', { class: 'sv-grid sv-age', role: 'radiogroup', 'aria-label': q.short, style: vars });
   const setOn = (id) => grid.querySelectorAll('.chip').forEach((c) => {
     const on = c.dataset.id === id;
     c.classList.toggle('on', on);
@@ -342,8 +339,7 @@ export function surveyTriggerScreen({ survey, brand, noun, selected = [], onChan
   const next = h('button', { type: 'button', class: 'sv-next', 'data-testid': 'survey-next', disabled: picked.size === 0, onclick: () => { if (picked.size) onNext(); } },
     h('span', { class: 'wipe' }), h('span', { class: 't' }, jp(`次へ/（${noun}へ）`)));
   next.insertAdjacentHTML('beforeend', arrow());
-  const grid = h('div', { class: 'sv-grid sv-trig', role: 'group', 'aria-label': `${q.short}（複数選択可）` });
-  grid.style.setProperty('--rows', String(Math.ceil(q.options.length / 2)));
+  const grid = h('div', { class: 'sv-grid sv-trig', role: 'group', 'aria-label': `${q.short}（複数選択可）`, style: { '--rows': Math.ceil(q.options.length / 2) } });
   q.options.forEach((opt, i) => {
     const c = chip({
       opt, index: i, multi: true, selected: picked.has(opt.id), testid: `trigger-${opt.id}`,

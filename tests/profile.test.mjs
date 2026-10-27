@@ -2,8 +2,10 @@
 // バックアップ検証（v1/v2/v3/設定ファイル）、選択肢を差し替えたアンケート。docs/CUSTOMIZE.md §2〜§4
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   CONFIG_VERSION, PROFILE_VERSION, LIMITS, normalizeConfig, newId, nextDayId, planBoxSettings, exportProfile, validateProfileFile,
+  len, inRange, PRINTABLE, hasOwn,
 } from '../js/profile.js';
 import { TEMPLATES, templateConfig, TIER_LATIN, YOSORO_TIER_LATIN, SURVEY_AGES, SURVEY_TRIGGERS } from '../js/templates.js';
 import {
@@ -532,6 +534,40 @@ test('nextDayId：day<n> で今の最大の番号の次（空きがなければ�
   assert.equal(nextDayId([{ id: 'day998' }, { id: 'day999' }]), 'day1', '番号が尽きたら最小の空き');
   assert.equal(nextDayId(Array.from({ length: 999 }, (_, i) => ({ id: `day${i + 1}` }))), null);
   assert.match(nextDayId([{ id: 'other' }, null, { id: 'day2' }]), /^day[0-9]{1,3}$/);
+});
+
+test('nextDayId：下書きの日に保存済みの日の id も足して渡せば、消した日の id を返さない（スタッフ画面の「日を追加」）', () => {
+  const stored = [{ id: 'day1' }, { id: 'day2' }];
+  const draft = [{ id: 'day1' }];                     // 最後の日（day2）を消した下書き
+  assert.equal(nextDayId(draft), 'day2', '下書きだけを見ると、消した日の id に戻ってしまう');
+  assert.equal(nextDayId([...draft, ...stored]), 'day3', '保存済みの id も数えれば使い回さない');
+  assert.equal(nextDayId([...draft, ...stored, { id: 'day3' }]), 'day4', '下書きで足した日があれば、その次');
+});
+
+// ---------- 入力の検証に使う小さな道具（スタッフ画面も同じものを使う） ----------
+test('len / inRange / PRINTABLE / hasOwn：データ層と同じ数え方・判定。スタッフ画面（admin.js）は自分で定義せずこれを import する', () => {
+  assert.equal(len(''), 0);
+  assert.equal(len('あいう'), 3);
+  assert.equal(len('a😀b'), 3, 'コードポイントで数える（UTF-16 の長さではない）');
+  assert.equal('a😀b'.length, 4);
+  assert.equal(inRange(LIMITS.days.min, LIMITS.days) && inRange(LIMITS.days.max, LIMITS.days), true);
+  assert.equal(inRange(LIMITS.days.min - 1, LIMITS.days) || inRange(LIMITS.days.max + 1, LIMITS.days), false);
+  assert.equal(PRINTABLE.test(''), true, '空は有効（欧文の欄は空でもよい）');
+  assert.equal(PRINTABLE.test('SPONSOR AWARD ~!'), true);
+  assert.equal(PRINTABLE.test('ガチャ') || PRINTABLE.test('a\tb') || PRINTABLE.test('é'), false);
+  assert.equal(PRINTABLE.test('abc'), PRINTABLE.test('abc'), 'g フラグが無い＝何度呼んでも同じ');
+  assert.equal(hasOwn({ a: 1 }, 'a'), true);
+  assert.equal(hasOwn({ a: undefined }, 'a'), true);
+  for (const k of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) assert.equal(hasOwn({}, k), false, k);
+  assert.equal(hasOwn(Object.create(null), 'x'), false, 'プロトタイプの無い入れ物でも例外なし');
+  // admin.js は node では読み込めない（document が要る）ので、ソースの文字で確かめる：自前の定義は無く、profile.js から import している
+  const src = readFileSync(new URL('../js/admin.js', import.meta.url), 'utf8');
+  const imported = /import \{([^}]*)\} from '\.\/profile\.js'/.exec(src)?.[1] ?? '';
+  for (const name of ['len', 'inRange', 'PRINTABLE', 'hasOwn']) {
+    assert.ok(new RegExp(`\\b${name}\\b`).test(imported), `admin.js は ${name} を profile.js から import する`);
+    assert.ok(!new RegExp(`\\b(const|let|var|function)\\s+${name}\\b`).test(src), `admin.js は ${name} を自分で定義しない`);
+  }
+  assert.ok(!/\b(const|let|var|function)\s+own\b/.test(src), 'admin.js に own（hasOwn の複製）が残っていない');
 });
 
 // ---------- planBoxSettings ----------

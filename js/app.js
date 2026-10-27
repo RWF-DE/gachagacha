@@ -437,8 +437,9 @@ async function main() {
   stage = createStage($('#stage'), { sound, reducedMotion: REDUCED });
   stage.onTurn(onTurn);
   stage.setInteractive(false);
-  // 画面の大きさが変わったら、ヘッダ帯を測り直す（stage の拡縮の更新より後に登録＝後に走る。演出中は測らない）
-  addEventListener('resize', () => { if (state !== 'drawing') safe(() => fitHeader($('#stage'))); });
+  // 画面の大きさが変わったら、ヘッダ帯を測り直す（stage の拡縮の更新より後に登録＝後に走る。演出中は測らない：
+  // 抽選の保存・空転中は state が 'drawing'、演出の最中は state が 'result' で revealing が立っている）
+  addEventListener('resize', () => { if (state !== 'drawing' && !revealing) safe(() => fitHeader($('#stage'))); });
   longPress($('#logo'), {
     ms: LONG_PRESS_ADMIN_MS,
     onProgress: (p) => $('#logo').style.setProperty('--p', p),

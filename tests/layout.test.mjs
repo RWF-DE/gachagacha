@@ -17,6 +17,30 @@ test('emWidth: 全角は 1em・半角は字種ごとの控えめな値・決ま�
   assert.equal(emWidth('舵輪を回して、'), emWidth('舵輪を回して、'), '同じ入力は同じ値');
 });
 
+test('emWidth: W・M（m・w）は 1em（ほかの大文字 0.8em・小文字 0.7em では足りない幅広の字）', () => {
+  for (const ch of ['M', 'W', 'm', 'w']) assert.equal(emWidth(ch), 1, ch);
+  assert.equal(emWidth('MWmw'), 4);
+  assert.equal(emWidth('WOW'), 1 + 0.8 + 1, 'W 以外の大文字は 0.8em のまま');
+  assert.equal(emWidth('Wow'), 1 + 0.7 + 1, 'w 以外の小文字は 0.7em のまま');
+  assert.equal(emWidth('A'), 0.8);
+  assert.equal(emWidth('a'), 0.7);
+  assert.ok(emWidth('M') > emWidth('N') && emWidth('m') > emWidth('n'), 'M は N より、m は n より広い');
+  assert.equal(emWidth('1W'), 0.72 + 1, '数字・空白・記号は変わらない');
+});
+
+test('headingSize: 幅広の大文字（W・M）の景品の呼び方でも、見出しが左の列（416px）からはみ出してダイヤルに掛からない', () => {
+  const lines = (prizeWord) => ['舵輪を回して、', `${prizeWord}を引こう！`];
+  const size = (prizeWord) => headingSize(lines(prizeWord), { base: 60, min: 40, maxW: 416, ls: -0.015 });
+  // 景品の呼び方は 6字まで。W を 0.8em と見積もっていたころは 57px になり、実際の幅（W≒1em）では 450px 近くになって左の列を越えた
+  assert.equal(size('WWW'), 52);
+  const widest = (prizeWord) => Math.max(...lines(prizeWord).map((t) => emWidth(t) - 0.015 * [...t].length));
+  assert.ok(widest('WWW') * size('WWW') <= 416, '見積りの幅で 416px に収まる（W を 1em と見積もるので、実際の幅でも収まる）');
+  assert.equal(size('MMMMMM'), 40, '6字とも M なら下限の 40px');
+  assert.equal(size('お宝'), 60, 'よーそろ（お宝）は今のまま 60px');
+  // 縦置き（幅 740px・基準 54px）は余裕があるので変わらない
+  assert.equal(headingSize(lines('WWW'), { base: 54, min: 40, maxW: 740, ls: -0.015 }), 54);
+});
+
 test('headingSize: よーそろ（舵輪・お宝）は今のサイズ 60px / 54px のまま', () => {
   const lines = ['舵輪を回して、', 'お宝を引こう！'];
   assert.equal(headingSize(lines, { base: 60, min: 40, maxW: 416, ls: -0.015 }), 60);

@@ -241,14 +241,14 @@ export function splitPhrases(text) {
 
 // ---------- 字の大きさの見積り（実測しない＝決まった値になる） ----------
 /**
- * 文字列の幅の見積り（em）。全角（かな・漢字・全角記号）は 1em。半角は字種ごとの控えめな値（見出しの Dela は英数が幅広め）。
+ * 文字列の幅の見積り（em）。全角（かな・漢字・全角記号）は 1em。半角は字種ごとの控えめな値（見出しの Dela は英数が幅広め。W・M は特に広く 1em）。
  * 字体の読み込み前でも、画面の大きさや端末が違っても同じ値になる（長い呼び名のときだけ字を小さくする判断に使う）。
  */
 export function emWidth(text) {
   let w = 0;
   for (const ch of String(text)) {
     const c = ch.codePointAt(0);
-    if (c < 0x80) w += /[A-Z]/.test(ch) ? 0.8 : /[a-z]/.test(ch) ? 0.7 : /[0-9]/.test(ch) ? 0.72 : ch === ' ' ? 0.32 : 0.5;
+    if (c < 0x80) w += /[MWmw]/.test(ch) ? 1 : /[A-Z]/.test(ch) ? 0.8 : /[a-z]/.test(ch) ? 0.7 : /[0-9]/.test(ch) ? 0.72 : ch === ' ' ? 0.32 : 0.5;
     else if (c >= 0xff61 && c <= 0xff9f) w += 0.5;   // 半角カナ
     else w += 1;
   }

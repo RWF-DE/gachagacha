@@ -146,8 +146,15 @@ try {
       await new Promise((res, rej) => { const tx = d.transaction([store], 'readwrite'); tx.objectStore(store).put(value); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
       d.close();
     };
+    /** db.js を通さずに1行消す（印が付く前の古い端末の状態を作る用） */
+    const delRaw = async (store, key) => {
+      await db.getDb();
+      const d = await open();
+      await new Promise((res, rej) => { const tx = d.transaction([store], 'readwrite'); tx.objectStore(store).delete(key); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+      d.close();
+    };
     const err = async (p) => { try { await p; return 'NO_ERROR'; } catch (e) { return e.code || String(e); } };
-    window.__ = { db, cfgm, prof, dump, putRaw, err };
+    window.__ = { db, cfgm, prof, dump, putRaw, delRaw, err };
   });
 
   await step('getConfig：保存された v1 の config は v2 に正規化して返す（ディスクの中身は触らない）', async () => {
@@ -422,49 +429,74 @@ try {
     assert.deepEqual(r, { left: 0, total: 12, code: 'NOT_SETUP' });
   });
 
-  await step('savePrizeSettings（旧い入力）：名前・本数未定・初期本数（文字列でも）の変更。抽選済みの日の本数変更は DAY_HAS_DRAWS', async () => {
+  await step('saveBoxSettings：名前の整形・本数未定・初期本数（文字列でも）の変更で調整が 0 に戻る／抽選済みの日でも同じ値は通る／同じ内容は何も残さない／長い名前・不正な本数は BAD_REQUEST', async () => {
     await seedV2();
     const r = await inPage(async () => {
       const { db, err, dump } = window.__;
       const out = {};
-      const saved = await db.savePrizeSettings({
-        categories: [{ id: 'sponsor', name: '  特別賞  ' }],
-        prizes: [{ id: 'ezo', name: 'E・ZO 招待券', countUnknown: true }],
-        initials: { day2: { greenland: '7', 'sticker-ibaraki': '2.9' } },
+      // 今の一覧に edit(input) で変更を混ぜて保存する（画面と同じ「一覧をまるごと」の入力）
+      const input = async (edit) => {
+        const cfg = await db.getConfig();
+        const i = { days: cfg.days, categories: structuredClone(cfg.categories), prizes: structuredClone(cfg.prizes), initials: {} };
+        edit?.(i);
+        return i;
+      };
+      const save = async (edit) => db.saveBoxSettings(await input(edit));
+      const row = (d, day, prize) => d.inventory.find((x) => x.key === `${day}:${prize}`);
+      await db.adjustInventory('day2', 'greenland', 4, '追加');   // 2日目の greenland：初期 3・調整 +4・残数 7
+      const adjusted = row(await dump(), 'day2', 'greenland');
+      out.adjusted = [adjusted.initial, adjusted.remaining, adjusted.adjust];
+      const saved = await save((i) => {
+        i.categories.find((c) => c.id === 'sponsor').name = '  特別賞  ';
+        Object.assign(i.prizes.find((p) => p.id === 'ezo'), { name: 'E・ZO 招待券', countUnknown: true });
+        i.initials = { day2: { greenland: '9', 'sticker-ibaraki': 2 } };
       });
-      out.cat = saved.categories[0].name;
+      out.cat = saved.categories.find((c) => c.id === 'sponsor').name;
       out.ezo = saved.prizes.find((p) => p.id === 'ezo');
       out.green = saved.prizes.find((p) => p.id === 'greenland').name;
-      const d = await dump();
-      out.rows = d.inventory.filter((x) => x.dayId === 'day2' && ['greenland', 'sticker-ibaraki'].includes(x.prizeId)).map((x) => [x.prizeId, x.initial, x.remaining, x.adjust]);
-      out.log = d.logs.find((l) => l.type === 'prize-settings')?.detail;
+      let d = await dump();
+      out.rows = ['greenland', 'sticker-ibaraki'].map((p) => { const x = row(d, 'day2', p); return [p, x.initial, x.remaining, x.adjust]; });
+      out.log = d.logs.find((l) => l.type === 'box-settings')?.detail;
+      // 同じ内容の保存は、何も書かない（ログも残さない）
+      const before = await dump();
+      await save();
+      const after = await dump();
+      out.noop = JSON.stringify(before.inventory) === JSON.stringify(after.inventory) && before.logs.length === after.logs.length;
       // 抽選のあと
       await db.draw({ kind: 'guest', survey: { v: 1, age: 'age-20s', triggers: ['sns'] } });
-      out.drawnDay = await err(db.savePrizeSettings({ initials: { day1: { greenland: 9 } } }));
-      out.sameValue = await err(db.savePrizeSettings({ initials: { day1: { greenland: '3' } } }));
-      out.unknownPrize = await err(db.savePrizeSettings({ prizes: [{ id: 'nope', name: 'x' }] }));
-      out.unknownCat = await err(db.savePrizeSettings({ categories: [{ id: 'nope', name: 'x' }] }));
-      out.emptyName = await err(db.savePrizeSettings({ prizes: [{ id: 'ezo', name: '  ' }] }));
-      out.longName = await err(db.savePrizeSettings({ prizes: [{ id: 'ezo', name: 'あ'.repeat(61) }] }));
-      out.longCat = await err(db.savePrizeSettings({ categories: [{ id: 'rare', name: 'あ'.repeat(41) }] }));
-      out.badInit = await err(db.savePrizeSettings({ initials: { day2: { greenland: -1 } } }));
-      out.nanInit = await err(db.savePrizeSettings({ initials: { day2: { greenland: 'abc' } } }));
-      out.hugeInit = await err(db.savePrizeSettings({ initials: { day2: { greenland: 100001 } } }));
-      out.notFound = await err(db.savePrizeSettings({ initials: { day9: { greenland: 1 } } }));
-      out.notFound2 = await err(db.savePrizeSettings({ initials: { day2: { nope: 1 } } }));
-      out.empty = await err(db.savePrizeSettings({}));
+      out.drawnDay = await err(save((i) => { i.initials = { day1: { greenland: 9 } }; }));
+      out.sameValue = await err(save((i) => { i.initials = { day1: { greenland: '3' } }; }));
+      out.sameNumber = await err(save((i) => { i.initials = { day1: { greenland: 3 } }; }));
+      out.emptyName = await err(save((i) => { i.prizes.find((p) => p.id === 'ezo').name = '  '; }));
+      out.longName = await err(save((i) => { i.prizes.find((p) => p.id === 'ezo').name = 'あ'.repeat(61); }));
+      out.longCat = await err(save((i) => { i.categories.find((c) => c.id === 'rare').name = 'あ'.repeat(41); }));
+      out.maxName = await err(save((i) => { i.prizes.find((p) => p.id === 'ezo').name = 'あ'.repeat(60); i.categories.find((c) => c.id === 'rare').name = 'い'.repeat(40); }));
+      out.badInit = await err(save((i) => { i.initials = { day2: { greenland: -1 } }; }));
+      out.nanInit = await err(save((i) => { i.initials = { day2: { greenland: 'abc' } }; }));
+      out.hugeInit = await err(save((i) => { i.initials = { day2: { greenland: 100001 } }; }));
+      // 一覧に無い日・景品の本数は使わない（行も作らない）
+      out.unknownIds = await err(save((i) => { i.initials = { day9: { greenland: 1 }, day2: { nope: 1 } }; }));
+      d = await dump();
+      out.keys = d.inventory.length;
+      out.stray = d.inventory.some((x) => x.dayId === 'day9' || x.prizeId === 'nope');
+      out.legacy = typeof db.savePrizeSettings;   // 画面から使われなくなった旧い入力は残していない
       return out;
     });
-    assert.equal(r.cat, '特別賞');
+    assert.deepEqual(r.adjusted, [3, 7, 4], '（前提）調整済みの行');
+    assert.equal(r.cat, '特別賞', '前後の空白は除く');
     assert.equal(r.ezo.name, 'E・ZO 招待券');
     assert.equal(r.ezo.countUnknown, true);
     assert.equal(r.green, 'グリーンランド招待券');
-    assert.deepEqual(r.rows, [['greenland', 7, 7, 0], ['sticker-ibaraki', 2, 2, 0]]);
-    assert.ok(Array.isArray(r.log) && r.log.some((c) => c.dayId === 'day2' && c.prizeId === 'greenland' && c.initial.to === 7), JSON.stringify(r.log));
+    assert.deepEqual(r.rows, [['greenland', 9, 9, 0], ['sticker-ibaraki', 2, 2, 0]], '初期本数を変えると残数も同じ値に・調整は 0 に戻る');
+    assert.ok(Array.isArray(r.log) && r.log.some((c) => c.dayId === 'day2' && c.prizeId === 'greenland' && c.initial.from === 3 && c.initial.to === 9), JSON.stringify(r.log));
+    assert.equal(r.noop, true, '同じ内容の保存は何も書かない');
     assert.deepEqual(
-      [r.drawnDay, r.sameValue, r.unknownPrize, r.unknownCat, r.emptyName, r.longName, r.longCat, r.badInit, r.nanInit, r.hugeInit, r.notFound, r.notFound2, r.empty],
-      ['DAY_HAS_DRAWS', 'NO_ERROR', 'BAD_REQUEST', 'BAD_REQUEST', 'BAD_REQUEST', 'BAD_REQUEST', 'BAD_REQUEST', 'BAD_REQUEST', 'BAD_REQUEST', 'BAD_REQUEST', 'NOT_FOUND', 'NOT_FOUND', 'NO_ERROR'],
+      [r.drawnDay, r.sameValue, r.sameNumber, r.emptyName, r.longName, r.longCat, r.maxName, r.badInit, r.nanInit, r.hugeInit, r.unknownIds],
+      ['DAY_HAS_DRAWS', 'NO_ERROR', 'NO_ERROR', 'BAD_REQUEST', 'BAD_REQUEST', 'BAD_REQUEST', 'NO_ERROR', 'BAD_REQUEST', 'BAD_REQUEST', 'BAD_REQUEST', 'NO_ERROR'],
     );
+    assert.equal(r.keys, 14);
+    assert.equal(r.stray, false);
+    assert.equal(r.legacy, 'undefined', 'savePrizeSettings は無い（景品・賞・日程の保存は saveBoxSettings だけ）');
   });
 
   await step('exportProfileFile → importProfile：抽選履歴があれば HAS_DRAWS（何も変えない）、無ければ作り直す（PIN・効果音は残る）', async () => {
@@ -677,7 +709,7 @@ try {
 
   await step('migrateGamjaPrizeName：生の v1 でも v2 でも、旧名だけを一度だけ更新する（E2E と同じ期待）', async () => {
     const r = await inPage(async ({ v1 }) => {
-      const { db, dump, putRaw, cfgm } = window.__;
+      const { db, dump, putRaw, delRaw, cfgm } = window.__;
       const out = {};
       // 生の v1（旧名）
       await db.wipeAll();
@@ -699,10 +731,11 @@ try {
       const third = await db.migrateGamjaPrizeName();
       out.again = [again, third];
       out.stays = (await dump()).meta.find((m) => m.key === 'config').value.prizes.find((p) => p.id === 'bulldak').name;
-      // v2（initialize 済み）でも
+      // v2 の保存データでも（initialize が移行済みの印を付けるようになる前に作られた旧い端末を再現するため、印を消す）
       await db.wipeAll();
       const cfg = cfgm.createDefaultConfig(); cfg.pinHash = 'p';
       await db.initialize({ config: cfg, activeDayId: 'day1', initials: cfgm.createDefaultInitials() });
+      await delRaw('meta', 'migration:gamja-prize-name-v1');
       const stored = (await dump()).meta.find((m) => m.key === 'config').value;
       stored.prizes.find((p) => p.id === 'bulldak').name = 'ブルダック炒め麺';
       await putRaw('meta', { key: 'config', value: stored });
@@ -722,6 +755,53 @@ try {
     assert.equal(r.v2first, true);
     assert.equal(r.v2.prizes.find((p) => p.id === 'bulldak').name, 'カムジャ麺');
     assert.equal(r.v2.schemaVersion, 2);
+  });
+
+  await step('initialize / importProfile は「名称移行済み」の印を付ける：旧名称（ブルダック炒め麺）を使う新しい設定を、移行で書き換えない／importAll は印がバックアップのまま', async () => {
+    const r = await inPage(async () => {
+      const { db, dump, delRaw, cfgm, prof } = window.__;
+      const FLAG = 'migration:gamja-prize-name-v1';
+      const OLD = 'ブルダック炒め麺';
+      const out = {};
+      const nameOf = async () => (await db.getConfig()).prizes.find((p) => p.id === 'bulldak').name;
+      const flagOf = async () => (await dump()).meta.find((m) => m.key === FLAG)?.value ?? null;
+      const migrationLogs = async () => (await dump()).logs.filter((l) => l.type === 'prize-name-migration').length;
+      const fresh = () => { const c = cfgm.createDefaultConfig(); c.pinHash = 'p'; return c; };
+      // (a) initialize：新しいイベントが、あえて旧名称を使う
+      await db.wipeAll();
+      const cfg = fresh();
+      cfg.prizes.find((p) => p.id === 'bulldak').name = OLD;
+      await db.initialize({ config: cfg, activeDayId: 'day1', initials: cfgm.createDefaultInitials() });
+      out.init = { flag: await flagOf(), migrated: await db.migrateGamjaPrizeName(), name: await nameOf(), logs: await migrationLogs() };
+      // (b) importProfile：印が付く前の旧い端末に、旧名称を使う設定ファイルを読み込む
+      const file = prof.exportProfile(cfg, []);
+      await db.wipeAll();
+      await db.initialize({ config: fresh(), activeDayId: 'day1', initials: cfgm.createDefaultInitials() });
+      await delRaw('meta', FLAG);
+      out.legacy = await flagOf();
+      await db.importProfile(file);
+      out.import = { flag: await flagOf(), migrated: await db.migrateGamjaPrizeName(), name: await nameOf(), logs: await migrationLogs() };
+      // (c) importAll：印はバックアップの meta のまま（印が無ければ付かず、旧名称は移行される。印が true なら移行されない）
+      const backup = async (flagged) => {
+        const b = await db.exportAll();
+        b.meta = b.meta.filter((m) => m.key !== FLAG).map((m) => (m.key === 'config'
+          ? { key: 'config', value: { ...m.value, prizes: m.value.prizes.map((p) => (p.id === 'bulldak' ? { ...p, name: OLD } : p)) } } : m));
+        if (flagged) b.meta.push({ key: FLAG, value: true });
+        return b;
+      };
+      await db.importAll(await backup(false));
+      out.restoredNoFlag = { flag: await flagOf(), name: await nameOf() };
+      out.noFlag = { migrated: await db.migrateGamjaPrizeName(), name: await nameOf(), flag: await flagOf() };
+      await db.importAll(await backup(true));
+      out.withFlag = { flag: await flagOf(), migrated: await db.migrateGamjaPrizeName(), name: await nameOf() };
+      return out;
+    });
+    assert.deepEqual(r.init, { flag: true, migrated: false, name: 'ブルダック炒め麺', logs: 0 }, 'initialize：旧名称のまま・移行のログなし');
+    assert.equal(r.legacy, null, '（前提）印の無い旧い端末');
+    assert.deepEqual(r.import, { flag: true, migrated: false, name: 'ブルダック炒め麺', logs: 0 }, 'importProfile：印が付き、旧名称のまま');
+    assert.deepEqual(r.restoredNoFlag, { flag: null, name: 'ブルダック炒め麺' }, 'importAll：印の無いバックアップは印が付かない');
+    assert.deepEqual(r.noFlag, { migrated: true, name: 'カムジャ麺', flag: true }, '印の無いバックアップ（旧い端末のもの）は、今までどおり一度だけ移行される');
+    assert.deepEqual(r.withFlag, { flag: true, migrated: false, name: 'ブルダック炒め麺' }, '印の付いたバックアップは移行されない');
   });
 
   await step('在庫の調整・日の切替・本番リセット・全初期化は今までどおり（v1 の保存データ）', async () => {

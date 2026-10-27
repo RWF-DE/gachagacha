@@ -131,8 +131,10 @@ export async function getConfig() {
 }
 
 /**
- * 既設端末の景品設定に残る旧名称を更新する。
+ * 既設端末の景品設定に残る旧名称を更新する（一度だけ。印は GAMJA_PRIZE_NAME_MIGRATION）。
  * inventory のキーと抽選履歴は prizeId を使うため id は変えず、在庫と過去の記録を保つ。
+ * 新しく作る設定（initialize・importProfile）は最初から移行済みの印を付けるので、旧名称を使うイベントでも書き換えない。
+ * バックアップの復元（importAll）は、バックアップの meta の印のまま。
  */
 export function migrateGamjaPrizeName() {
   return runTx(['meta', 'logs'], 'readwrite', (tx, ok) => {
@@ -176,6 +178,7 @@ export function initialize({ config: given, activeDayId, initials }) {
     meta.put({ key: 'activeDayId', value: activeDayId });
     meta.put({ key: 'schemaVersion', value: SCHEMA_VERSION });
     meta.put({ key: 'drawSeq', value: {} });
+    meta.put({ key: GAMJA_PRIZE_NAME_MIGRATION, value: true });   // 新しい設定は移行の対象にしない
     for (const d of config.days) {
       for (const p of config.prizes) {
         const n = Math.max(0, Math.floor(Number(initials?.[d.id]?.[p.id] ?? 0)));
@@ -190,7 +193,7 @@ export function initialize({ config: given, activeDayId, initials }) {
 /**
  * 設定の更新（効果音・学籍番号ルール・PIN・名前や配色など）。正規化（v2）して保存し、変更前後の要約だけログに残す（pinHashは残さない）。
  * 開催日・賞・景品は保存済みのまま変えない（在庫・抽選記録と対応しているため。変えるのは
- * initialize / saveBoxSettings / savePrizeSettings / importProfile / importAll だけ）。何も保存されていなければ渡された config をそのまま保存する。
+ * initialize / saveBoxSettings / importProfile / importAll だけ）。何も保存されていなければ渡された config をそのまま保存する。
  */
 export function saveConfig(config, logType = 'config', logDetail = null) {
   return runTx(['meta', 'logs'], 'readwrite', (tx, ok, fail) => {
@@ -271,7 +274,7 @@ export function adjustInventory(dayId, prizeId, delta, reason) {
  * 失敗: NOT_SETUP / BAD_REQUEST / DAY_HAS_DRAWS / PRIZE_HAS_DRAWS / DAY_LOCKED（detail に対象の id）
  */
 export function saveBoxSettings(input) {
-  return boxTx('box-settings', () => ({ input: withNumericInitials(input) }));
+  return boxTx(withNumericInitials(input));
 }
 
 /** 画面の数値欄の文字列（"12"）は整数にして渡す（判定の planBoxSettings は整数だけを受け付ける）。それ以外の値はそのまま渡して断らせる。 */
@@ -288,53 +291,8 @@ function withNumericInitials(input) {
   return { ...input, initials };
 }
 
-/**
- * 旧い景品設定の保存（名称・未定フラグ・日別初期本数）。互換のために残す。
- * 渡された一部（変えたい賞・景品・本数）を今の config と在庫から作った一覧に混ぜ、saveBoxSettings と同じ判定・保存を使う。
- * 初期本数は「まだ1回も抽選していない日」だけ変更可。抽選済みの日で値が違えば DAY_HAS_DRAWS。
- * input: {categories:[{id,name}], prizes:[{id,name,countUnknown}], initials:{dayId:{prizeId:n}}}
- */
-export function savePrizeSettings(input) {
-  return boxTx('prize-settings', (config, rows) => {
-    const err = (code, detail) => ({ error: [code, detail] });
-    const categories = config.categories.map((c) => ({ ...c }));
-    for (const c of input.categories || []) {
-      const cat = categories.find((x) => x.id === c.id);
-      const name = String(c.name ?? '').trim();
-      if (!cat || !name || [...name].length > 40) return err('BAD_REQUEST', 'category');
-      cat.name = name;
-    }
-    const prizes = config.prizes.map((p) => ({ ...p }));
-    for (const p of input.prizes || []) {
-      const prize = prizes.find((x) => x.id === p.id);
-      const name = String(p.name ?? '').trim();
-      if (!prize || !name || [...name].length > 60) return err('BAD_REQUEST', 'prize');
-      prize.name = name;
-      prize.countUnknown = !!p.countUnknown;
-    }
-    const byKey = new Map(rows.map((r) => [r.key, r]));
-    const initials = {};
-    for (const d of config.days) {
-      initials[d.id] = {};
-      for (const p of config.prizes) {
-        const r = byKey.get(`${d.id}:${p.id}`);
-        if (r) initials[d.id][p.id] = r.initial;
-      }
-    }
-    for (const [dayId, perPrize] of Object.entries(input.initials || {})) {
-      for (const [prizeId, raw] of Object.entries(perPrize)) {
-        const n = Math.floor(Number(raw));
-        if (!Number.isFinite(n) || n < 0 || n > 100000) return err('BAD_REQUEST', 'initial');
-        if (!byKey.has(`${dayId}:${prizeId}`)) return err('NOT_FOUND');
-        (initials[dayId] ||= {})[prizeId] = n;
-      }
-    }
-    return { input: { days: config.days, categories, prizes, initials } };
-  });
-}
-
-/** saveBoxSettings / savePrizeSettings の共通部分。build(config, 在庫の行) が planBoxSettings の input か {error:[code, detail]} を返す。 */
-function boxTx(logType, build) {
+/** saveBoxSettings の本体：config・在庫・抽選数を読み、planBoxSettings の判定どおりに書く（ログ box-settings）。 */
+function boxTx(input) {
   return runTx(['meta', 'inventory', 'draws', 'logs'], 'readwrite', (tx, ok, fail) => {
     const meta = tx.objectStore('meta');
     const inv = tx.objectStore('inventory');
@@ -352,14 +310,12 @@ function boxTx(logType, build) {
           drawsByDay[d.dayId] = (drawsByDay[d.dayId] || 0) + 1;
           drawsByPrize[d.prizeId] = (drawsByPrize[d.prizeId] || 0) + 1;
         }
-        const built = build(config, ri.result);
-        if (built.error) return fail(...built.error);
-        const plan = planBoxSettings({ config, inventory: ri.result, drawsByDay, drawsByPrize, activeDayId: ra.result?.value ?? null }, built.input);
+        const plan = planBoxSettings({ config, inventory: ri.result, drawsByDay, drawsByPrize, activeDayId: ra.result?.value ?? null }, input);
         if (!plan.ok) return fail(plan.code, plan.detail);
         for (const row of plan.puts) inv.put(row);
         for (const key of plan.deletes) inv.delete(key);
         meta.put({ key: 'config', value: plan.config });   // v1 のまま残っていた config もここで v2 になる
-        if (plan.changes.length) addLog(tx, logType, plan.changes);
+        if (plan.changes.length) addLog(tx, 'box-settings', plan.changes);
         ok(plan.config);
       } catch (e) {
         fail('DB_ERROR', e?.name);
@@ -687,6 +643,7 @@ export async function importProfile(fileObj) {
         meta.put({ key: 'activeDayId', value: config.days[0].id });
         meta.put({ key: 'schemaVersion', value: SCHEMA_VERSION });
         meta.put({ key: 'drawSeq', value: {} });
+        meta.put({ key: GAMJA_PRIZE_NAME_MIGRATION, value: true });   // 読み込んだ設定は移行の対象にしない
         meta.delete('pendingDrawId');
         meta.delete('lastBackupAt');
         addLog(tx, 'profile-import', { eventId: config.eventId, days: config.days.length, prizes: config.prizes.length });
