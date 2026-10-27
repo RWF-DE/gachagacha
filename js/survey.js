@@ -1,8 +1,13 @@
 // 来場者アンケート（本校学生以外）の検証・ラベル・集計。DOM・DBに触れない純粋関数だけ。
 // 保存の形（draw レコードの survey）:
 //   { v:1, age:'<id>', triggers:['<id>',...], ageLabel:'<保存時の表示名>', triggerLabels:['<保存時の表示名>',...] }
-import { SURVEY_AGES, SURVEY_TRIGGERS, SURVEY_VERSION } from './config.js';
+// 選択肢は呼び出し側が config.survey.q1.options / q2.options を渡す（省略時は電波祭2026 の既定。templates.js）。
+// id は保存データに入る「変えない名前」、label は画面表示用（保存時に履歴へも写す）。
+// フィールド名は質問の中身が変わっても age（= Q1）・triggers（= Q2）のまま。
+// config.js はここから SURVEY_VERSION を再エクスポートする（循環させないため、ここは config.js を import しない）。
+import { SURVEY_AGES, SURVEY_TRIGGERS } from './templates.js';
 
+export const SURVEY_VERSION = 1;
 export const UNANSWERED = '未回答';
 
 /**

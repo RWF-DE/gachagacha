@@ -22,6 +22,8 @@ const PRECACHE = [
   'js/config.js',
   'js/lottery.js',
   'js/db.js',
+  'js/profile.js',
+  'js/templates.js',
   'js/util.js',
   'js/ui.js',
   'js/app.js',

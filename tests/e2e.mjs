@@ -395,7 +395,7 @@ try {
     let d = await dumpDb();
     assert.equal(d.draws.length, 0, '途中でやめても抽選は作られない');
     assert.ok(d.inventory.filter((r) => r.dayId === 'day1').every((r) => r.remaining === r.initial), '在庫は減らない');
-    assert.ok(!JSON.stringify(d).includes('age-30s'), '回答は DB のどこにも書かれていない');
+    assert.ok(!JSON.stringify({ ...d, meta: d.meta.filter((m) => m.key !== 'config') }).includes('age-30s'), '回答は DB のどこにも書かれていない（config の選択肢の一覧は除く）');
     await page.click(tid('choose-guest'));
     await waitScreen('survey-age');
     assert.equal(await page.locator('.chip.on').count(), 0, '前の人の回答は消えている');
@@ -598,7 +598,7 @@ try {
     backupFile = path.join(downloadDir, 'backup.json');
     await dl.saveAs(backupFile);
     backupA = JSON.parse(fs.readFileSync(backupFile, 'utf8'));
-    assert.equal(backupA.schemaVersion, 1);
+    assert.equal(backupA.schemaVersion, 2);
     assert.equal(backupA.draws.length, 3);
     await page.waitForFunction(() => document.body.textContent.includes('以降の抽選 0 件'), null, { timeout: 5000 });
     const d = await dumpDb();
