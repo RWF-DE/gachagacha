@@ -13,7 +13,10 @@
 //   stage.resultActionsEl                         結果カード内の操作スロット（スタッフOKボタンを入れる）
 //   stage.reset(): Promise                        結果を閉じて待機の紙へ
 //   stage.setDay(text)                            ヘッダの開催日表示（飾り）
-//   r = { tier:'sponsor'|'rare'|'sticker', categoryName, prizeName, label }
+//   stage.setMotif(id)                            回すもの（js/motifs.js）の差し替え。#wheel の中身だけを替える（ロゴ・待機画面・抽選画面・結果の飾りが全部追従）。演出中は呼ばない
+//   stage.setBrand(brand)                         ガチャ名・イベント名・「お宝」などの文言（config.brand）。結果カードの固定文言と、抽選画面・タイトルカードの文言に使う。演出中は呼ばない
+//   r = { tier:'sponsor'|'rare'|'sticker', categoryName, prizeName, label, categoryLatin? }
+//       categoryLatin = 結果のヘッダ中央とタイトルカードに出る賞の欧文（無ければ系統ごとの SPONSOR AWARD / RARE STICKER / STICKER）
 // ?fast=1 / prefers-reduced-motion では 1 秒未満の単純なフェードにする。
 //
 // WebKit（iPad Safari）向けの約束（docs/DESIGN.md §10）:
@@ -21,14 +24,20 @@
 //   - 効果音は sound.play(name, delayMs, group) でオーディオクロックに予約する（setTimeout で鳴らさない）。
 //   - 演出の間レイヤーを作り直さない（css/poster.css の will-change 一覧）。.playing は reset() まで残す。
 import {
-  DEFS, wheelMark, metaHtml, splitChars, esc, fitStage, installGrain, drawHalftone, splitPhrases, fontsReady,
+  defsHtml, wheelMark, metaHtml, brandMid, splitChars, esc, fitStage, fitHeader, installGrain, drawHalftone, splitPhrases, fontsReady, headingSize,
 } from './poster.js';
+import { getMotif, resolveMotifId, DEFAULT_MOTIF_ID } from './motifs.js';
 import { createPerf } from './perf.js';
 
+// mid = 賞の欧文ラベルが無いとき（r.categoryLatin が空）の系統ごとの既定
 const TIERS = {
-  sponsor: { mid: 'SPONSOR AWARD', capC: 'YoSoro Gacha — Sponsor Award', base: { l: 178, p: 150 }, prize: { l: 112, p: 100 }, sound: 'fanfare-sponsor' },
+  sponsor: { mid: 'SPONSOR AWARD', base: { l: 178, p: 150 }, prize: { l: 112, p: 100 }, sound: 'fanfare-sponsor' },
   rare: { mid: 'RARE STICKER', base: { l: 148, p: 140 }, prize: { l: 112, p: 100 }, sound: 'fanfare-rare' },
   sticker: { mid: 'STICKER', base: { l: 158, p: 150 }, prize: { l: 116, p: 104 }, sound: 'fanfare-sticker' },
+};
+// setBrand が呼ばれる前の既定（index.html と RESULT_HTML の初回表示と同じ文言。app.js が起動時に config の値で上書きする）
+const DEFAULT_BRAND = {
+  name: 'よーそろがちゃ', nameLatin: 'YOSORO GACHA', eventLabel: '電波祭 2026', eventLatin: 'DENPASAI 2026', prizeWord: 'お宝',
 };
 // 保存完了を 0ms とした演出の時刻（css/poster.css のタイムラインと揃える）
 const TIMELINE = {
@@ -73,7 +82,10 @@ const RESULT_HTML = `
 
 export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   const fast = !!reducedMotion;
-  stageEl.insertAdjacentHTML('afterbegin', DEFS);
+  let motifId = DEFAULT_MOTIF_ID;   // 今 #wheel に入っているモチーフ（setMotif で替える）
+  let motif = getMotif(motifId);
+  let brand = { ...DEFAULT_BRAND };
+  stageEl.insertAdjacentHTML('afterbegin', defsHtml(motifId));
   stageEl.insertAdjacentHTML('beforeend', RESULT_HTML);
   installGrain(stageEl);
   if (fast) stageEl.classList.add('fast');
@@ -100,7 +112,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   };
   const perf = createPerf();   // ?perf=1 のときだけ（実機のカクつき確認用）
   const catEl = $('#cat'); const prizeEl = $('#prize'); const prizeWinEl = $('#prizewin'); const ruleEl = $('#result .rule'); const plabelEl = $('#result .plabel');
-  const numEl = $('#num'); const htEl = $('#ht'); const staffEl = $('#staffslot'); const bigEl = $('#bigcat'); const cardEl = $('#card');
+  const numEl = $('#num'); const htEl = $('#ht'); const staffEl = $('#staffslot'); const bigEl = $('#bigcat'); const cardEl = $('#card'); const resultEl = $('#result');
 
   let geo = fitStage(stageEl);
   stageEl.addEventListener('scroll', () => { stageEl.scrollLeft = 0; stageEl.scrollTop = 0; });
@@ -142,27 +154,36 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     const el = document.createElement('section');
     el.className = 'scr scr-wheel';
     el.setAttribute('data-testid', 'screen-wheel');
-    el.innerHTML = `${metaHtml('YOSORO GACHA — よーそろがちゃ')}
-      <div class="step"><b>DRAW</b> TURN THE WHEEL</div>
-      <h2><span class="ph">舵輪を回して、</span><br><span class="ph"><em>お宝</em>を引こう！</span></h2>
-      <p class="sub"><span class="ph">舵輪をぐるっと回すか、</span><q>タップでまわす</q><span class="ph">を押して</span><span class="ph">ください。</span></p>
+    // 文言は回すものの呼び名（舵輪・ガチャ・ルーレット…）と景品の呼び方（お宝・景品…）から作る（docs/CUSTOMIZE.md §6）。
+    // 色はダイヤルの目盛り・弧・針も含めて CSS（css/poster.css .dial）で決める。
+    const noun = esc(motif.noun);
+    el.innerHTML = `${metaHtml(esc(brandMid(brand)))}
+      <div class="step"><b>DRAW</b> ${esc(motif.stepLatin)}</div>
+      <h2><span class="ph">${noun}を回して、</span><br><span class="ph"><em>${esc(brand.prizeWord)}</em>を引こう！</span></h2>
+      <p class="sub"><span class="ph">${noun}をぐるっと回すか、</span><q>タップでまわす</q><span class="ph">を押して</span><span class="ph">ください。</span></p>
       <button type="button" class="go" data-testid="spin-button"><span class="wipe"></span><span>タップでまわす</span><svg aria-hidden="true"><use href="#rot"/></svg></button>
       <div class="readout"><b data-deg>0</b>° / ${THRESHOLD_DEG}°</div>
       <div class="dial">
         <svg viewBox="-360 -360 720 720" aria-hidden="true">
-          <g stroke="#0A0E33">${ticksSvg()}</g>
-          <circle class="arc" r="352" fill="none" stroke="#F23B20" stroke-width="8" transform="rotate(-90)" stroke-dashoffset="${CIRC.toFixed(1)}"/>
-          <path d="M0 -318 l-17 -38 h34z" fill="#F23B20"/>
+          <g class="ticks">${ticksSvg()}</g>
+          <circle class="arc" r="352" fill="none" stroke-width="8" transform="rotate(-90)" stroke-dashoffset="${CIRC.toFixed(1)}"/>
+          <path class="ptr" d="M0 -318 l-17 -38 h34z"/>
         </svg>
-        <div class="wheelwrap" data-testid="wheel" tabindex="0" role="button" aria-label="舵輪（タップするか、ぐるっと回します）">${wheelMark('style="transform:rotate(38deg)"')}</div>
+        <div class="wheelwrap" data-testid="wheel" tabindex="0" role="button" aria-label="${noun}（タップするか、ぐるっと回します）">${wheelMark(`style="transform:rotate(${motif.angle}deg)"`)}</div>
       </div>
       <button type="button" class="pbtn back" data-testid="back"><span>← 戻る</span></button>`;
+    // 見出しは左の列（ダイヤルの左）に収める。長い呼び名のときだけ字を小さくする（収まるなら CSS の 60px / 54px のまま）
+    const hLines = [`${motif.noun}を回して、`, `${brand.prizeWord}を引こう！`];
+    const hl = headingSize(hLines, { base: 60, min: 40, maxW: 416, ls: -0.015 });
+    const hp = headingSize(hLines, { base: 54, min: 40, maxW: 740, ls: -0.015 });
+    if (hl < 60) el.style.setProperty('--h2-l', `${hl}px`);
+    if (hp < 54) el.style.setProperty('--h2-p', `${hp}px`);
 
     const wrap = el.querySelector('.wheelwrap');
     const svg = wrap.querySelector('.wm');
     const arc = el.querySelector('.arc');
     const deg = el.querySelector('[data-deg]');
-    const w = { el, angle: 38, net: 0, fired: false, svg, arc, deg };
+    const w = { el, angle: motif.angle, net: 0, fired: false, svg, arc, deg };
     wheel = w;
 
     const render = () => {
@@ -343,14 +364,17 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
   // ---------- 結果の組み立て ----------
   function norm(r) {
     const tier = TIERS[r.tier] ? r.tier : 'sticker';
-    return { tier, categoryName: String(r.categoryName ?? ''), prizeName: String(r.prizeName ?? ''), label: String(r.label ?? '') };
+    return {
+      tier, categoryName: String(r.categoryName ?? ''), prizeName: String(r.prizeName ?? ''), label: String(r.label ?? ''),
+      categoryLatin: String(r.categoryLatin ?? '').trim(),
+    };
   }
 
   function buildResult(r) {
     const T = TIERS[r.tier];
     stageEl.classList.remove('t-sponsor', 't-rare', 't-sticker');
     stageEl.classList.add(`t-${r.tier}`);
-    $('#m-mid').textContent = T.mid;
+    $('#m-mid').textContent = r.categoryLatin || T.mid;
     const chars = [...r.categoryName];
     catEl.innerHTML = splitChars(r.categoryName);
     catEl.style.setProperty('--kd', `${Math.max(14, Math.min(70, Math.floor(420 / Math.max(1, chars.length - 1))))}ms`);
@@ -388,9 +412,11 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     let k = 0;
     bigEl.innerHTML = parts.map((p) => { const h = `<span class="ln">${splitChars(p, k)}</span>`; k += [...p].length; return h; }).join('');
     cardEl.style.setProperty('--kd', `${Math.max(14, Math.min(80, Math.floor(400 / Math.max(1, n - 1))))}ms`);
-    cardEl.querySelector('.cap.a').textContent = TIERS.sponsor.mid;
-    cardEl.querySelector('.cap.b').textContent = `電波祭 2026 / ${r.label}`;
-    cardEl.querySelector('.cap.c').textContent = TIERS.sponsor.capC;
+    // 賞の欧文・イベントの小見出し・ガチャ名は設定から（docs/CUSTOMIZE.md §7.2）。.cap は CSS で大文字表示
+    const latin = r.categoryLatin || TIERS.sponsor.mid;
+    cardEl.querySelector('.cap.a').textContent = latin;
+    cardEl.querySelector('.cap.b').textContent = brand.eventLabel ? `${brand.eventLabel} / ${r.label}` : r.label;
+    cardEl.querySelector('.cap.c').textContent = `${brand.nameLatin || brand.name} — ${latin}`;
     cardEl.dataset.lines = String(parts.length);
   }
 
@@ -438,6 +464,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
 
   function layoutResult() {
     if (!cur) return;
+    fitHeader(stageEl, resultEl);   // 長い名前のときだけ、ロゴ・賞の欧文・開催日が重ならないよう調整する（収まるなら何もしない）
     const { W, H, portrait: P } = geo;
     if (cur.tier === 'sponsor') fitCard();
     const T = TIERS[cur.tier];
@@ -473,15 +500,17 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     if (cur.tier === 'sponsor') paintHalftone(P ? W - 80 : 236, P ? 56 : Math.max(60, Math.min(168, ruleTop - 12 - 78)));
   }
 
-  // ハーフトーンは枠の大きさごとに1回だけ canvas に描いて使い回す（描き直さない・演出中に再ラスタライズしない）
+  // ハーフトーンは枠の大きさ・インクの色ごとに1回だけ canvas に描いて使い回す（描き直さない・演出中に再ラスタライズしない）。
+  // インクの色は配色の --ink（描くときに読む。配色が変わっても色がキーに入っているので古い絵を使わない）
   const htCache = new Map();
   function paintHalftone(bw, bh) {
     const scale = Math.min(3, (window.devicePixelRatio || 1) * (geo.s || 1));
-    const key = `${Math.round(bw)}x${Math.round(bh)}@${scale.toFixed(2)}`;
+    const ink = getComputedStyle(stageEl).getPropertyValue('--ink').trim() || '#0A0E33';
+    const key = `${Math.round(bw)}x${Math.round(bh)}@${scale.toFixed(2)}|${ink}`;
     let c = htCache.get(key);
     if (!c) {
       c = document.createElement('canvas');
-      drawHalftone(c, bw, bh, scale);
+      drawHalftone(c, bw, bh, scale, ink);
       if (htCache.size > 6) htCache.clear();
       htCache.set(key, c);
     }
@@ -566,8 +595,44 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     staffEl.replaceChildren();
   }
 
+  // ---------- 回すもの・文言（演出中は呼ばない。app.js の applyLook が refresh() からだけ呼ぶ） ----------
+  const prizeLabelEl = $('#result .plabel span');
+  const stampFootEl = $('#result .stamp .s3');
+  const BRAND_KEYS = ['name', 'nameLatin', 'eventLabel', 'eventLatin', 'prizeWord'];
+
+  /**
+   * 回すものを替える。<symbol id="wheel"> の中身だけを入れ替える：ロゴ・待機画面の大きなマーク・抽選画面の回すもの・結果画面の飾りは
+   * すべて <use href="#wheel"> なので 1か所で全部変わる。抽選画面の文言と最初の向き（angle）は次に作る wheelScreen から変わる。
+   */
+  function setMotif(id) {
+    const next = resolveMotifId(id);
+    if (next === motifId) return;
+    const sym = stageEl.querySelector('symbol#wheel');
+    if (!sym) return;
+    motifId = next;
+    motif = getMotif(next);
+    sym.innerHTML = motif.svg;
+    // 参照している <use> に取り直させる（参照先の中身の変更が <use> に反映されない実装への念のため。同じ値の再設定は変更と見なされないことがあるので、いったん外す）
+    for (const u of stageEl.querySelectorAll('use[href="#wheel"]')) { u.removeAttribute('href'); u.setAttribute('href', '#wheel'); }
+  }
+
+  /** 文言を替える。結果カードの固定文言（PRIZE ラベル・スタンプの下）はすぐ、抽選画面・タイトルカードの文言は次に作るときから変わる */
+  function setBrand(b) {
+    const next = { ...DEFAULT_BRAND };
+    for (const k of BRAND_KEYS) if (typeof b?.[k] === 'string') next[k] = b[k];
+    brand = next;
+    prizeLabelEl.textContent = brand.prizeWord && brand.prizeWord !== '景品' ? `${brand.prizeWord} / 景品` : '景品';
+    stampFootEl.textContent = brand.eventLatin;
+    stampFootEl.hidden = !brand.eventLatin;
+    // 長い欧文は円の中に収まるよう小さくする（13px の等幅＋字間 .14em で 1字およそ 9.6px。円の幅は 160px まで）。今の DENPASAI 2026（13字）は 13px のまま
+    const fs = Math.max(8, Math.min(13, Math.floor(160 / ([...brand.eventLatin].length * 0.74))));
+    stampFootEl.style.fontSize = fs < 13 ? `${fs}px` : '';
+  }
+
   return {
     wheelScreen,
+    setMotif,
+    setBrand,
     onTurn(cb) { turnCb = cb; },
     setInteractive,
     startSpin,

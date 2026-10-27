@@ -89,3 +89,25 @@ export const MOTIFS = {
 };
 
 export const DEFAULT_MOTIF_ID = 'helm';
+
+// ---------- 関数 ----------
+/** 実際に使うモチーフの id。知らない id（新しい版で作った設定など）は舵輪。'constructor' などの継承プロパティは id と見なさない */
+export function resolveMotifId(id) {
+  return typeof id === 'string' && Object.prototype.hasOwnProperty.call(MOTIFS, id) ? id : DEFAULT_MOTIF_ID;
+}
+
+/** id のモチーフ { label, noun, stepLatin, angle, svg }。知らない id は舵輪 */
+export const getMotif = (id) => MOTIFS[resolveMotifId(id)];
+
+const SAFE_COLOR = /^(#[0-9A-Fa-f]{3,8}|[A-Za-z]{3,20}|(?:rgb|hsl)a?\([\d\s,.%/-]+\))$/;   // style 属性に埋め込んでよい色だけ
+
+/**
+ * 単体で置ける <svg> 文字列（スタッフ画面の見本用）。<use> を使わず図形をそのまま描くので、何個並べても id がぶつからない。
+ * wc = 本体の色、hl = 目印の色（既定はよーそろの インク／朱）。size は px（一辺）。装飾なので aria-hidden（名前は置く側のボタンが持つ）。
+ */
+export function motifPreviewSvg(id, { size = 96, wc = '#0A0E33', hl = '#F23B20' } = {}) {
+  const px = Math.max(8, Math.min(1024, Math.round(Number(size)) || 96));
+  const color = (v, d) => (typeof v === 'string' && SAFE_COLOR.test(v.trim()) ? v.trim() : d);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-300 -300 600 600" width="${px}" height="${px}" aria-hidden="true" `
+    + `style="--wc:${color(wc, '#0A0E33')};--hl:${color(hl, '#F23B20')}">${getMotif(id).svg}</svg>`;
+}
