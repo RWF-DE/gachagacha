@@ -68,11 +68,12 @@ let lookKey = '';
  * 見た目の設定を画面に反映する：配色（CSS 変数・theme-color）・回すもの・文言（stage）・ロゴ・タブのタイトル。
  * refresh() から、どの画面も出す前に呼ぶ。演出中には呼ばない（スタッフ画面は演出中に開けないので、そこからの変更も安全）。
  * 配色・回すもの・名前が前回と同じなら何もしない（抽選のたびに <html> のスタイルを書き直さない）。
+ * 戻り値：見た目を書き換えたら true、前回と同じで何もしなかったら false。
  */
 function applyLook(cfg) {
   look = lookOf(cfg);
   const key = JSON.stringify([look.eventName, look.brand, look.theme, look.motif]);
-  if (key === lookKey) return;
+  if (key === lookKey) return false;
   lookKey = key;
   const { brand } = look;
   safe(() => applyTheme(resolveTheme(look.theme)));
@@ -91,6 +92,7 @@ function applyLook(cfg) {
     document.title = `${brand.name}｜${look.eventName}`;
     document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', brand.name);
   });
+  return true;
 }
 
 // ---------- 画面遷移の共通処理 ----------
@@ -395,9 +397,15 @@ async function openAdmin() {
   const wasResult = state === 'result';
   safe(() => stage.setInteractive(false));
   await admin.open();
-  // 未確認の結果を表示中に開いた場合：まだ未確認なら結果画面はそのまま残す（配色・文言の変更だけ反映する）
-  if (wasResult && (await db.getPendingDraw().catch(() => null))) {
-    try { config = await db.getConfig(); applyLook(config); } catch { /* 飾りなので失敗しても結果画面はそのまま */ }
+  // 未確認の結果を表示中に開いた場合：まだ未確認なら結果画面はそのまま残す（配色・文言の変更だけ反映する）。
+  // 見た目が変わったときは結果を静止表示で組み直す：配色は CSS 変数で追従するが、ハーフトーン（協賛特別賞の飾りの canvas）は
+  // 描いたときのインクの色のまま残るので、組み直して新しい配色で描き直す（演出中は開けないので安全。結果の見た目は静止表示と同じ）。
+  const pendingNow = wasResult ? await db.getPendingDraw().catch(() => null) : null;
+  if (pendingNow) {
+    try {
+      config = await db.getConfig();
+      if (applyLook(config)) safe(() => stage.showResultStatic(toReveal(pendingNow)));
+    } catch { /* 飾りなので失敗しても結果画面はそのまま */ }
     return;
   }
   await refresh();

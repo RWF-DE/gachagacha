@@ -420,10 +420,10 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     cardEl.dataset.lines = String(parts.length);
   }
 
-  function fitWidth(el, base, maxW) {
+  function fitWidth(el, base, maxW, min = 24) {
     el.style.fontSize = `${base}px`;
     const w = el.offsetWidth;
-    if (w > maxW && w > 0) el.style.fontSize = `${Math.max(24, Math.floor((base * maxW) / w))}px`;
+    if (w > maxW && w > 0) el.style.fontSize = `${Math.max(min, Math.floor((base * maxW) / w))}px`;
     return parseFloat(el.style.fontSize);
   }
 
@@ -471,7 +471,7 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     const k = P ? 'p' : 'l';
     // 賞の名称
     const catMax = P ? W - 80 : cur.tier === 'sponsor' ? W - 80 - 236 - 24 : cur.tier === 'sticker' ? W - 80 - 280 : W - 80;
-    const cs = fitWidth(catEl, T.base[k], catMax);
+    const cs = fitWidth(catEl, T.base[k], catMax, 16);   // 賞の名前は最長 40 字：1行のまま縦置き（幅 740px）に収めるには 18px まで縮める（下限 24px だと右にはみ出す）
     const catTop = P ? 150 : 76;
     const ruleTop = Math.round(catTop + cs + 18);
     const prizeTop = ruleTop + 58;
@@ -624,8 +624,9 @@ export function createStage(stageEl, { sound, reducedMotion = false } = {}) {
     prizeLabelEl.textContent = brand.prizeWord && brand.prizeWord !== '景品' ? `${brand.prizeWord} / 景品` : '景品';
     stampFootEl.textContent = brand.eventLatin;
     stampFootEl.hidden = !brand.eventLatin;
-    // 長い欧文は円の中に収まるよう小さくする（13px の等幅＋字間 .14em で 1字およそ 9.6px。円の幅は 160px まで）。今の DENPASAI 2026（13字）は 13px のまま
-    const fs = Math.max(8, Math.min(13, Math.floor(160 / ([...brand.eventLatin].length * 0.74))));
+    // 長い欧文は円の中に収まるよう小さくする（13px の等幅＋字間 .14em で 1字およそ 9.6px）。使える幅は、いちばん小さい円（通常の系統：直径 230px）の
+    // この位置で 140px まで（250px の円でも収まる。160px だと、通常の系統では 15字以上の欧文の両端がリングに掛かる）。今の DENPASAI 2026（13字）は 13px のまま
+    const fs = Math.max(8, Math.min(13, Math.floor(140 / ([...brand.eventLatin].length * 0.74))));
     stampFootEl.style.fontSize = fs < 13 ? `${fs}px` : '';
   }
 

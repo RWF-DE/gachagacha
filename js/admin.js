@@ -77,12 +77,22 @@ async function verifyPin(pin) {
   return !!cfg?.pinHash && (await hashPin(pin)) === cfg.pinHash;
 }
 
-/** 現在の config を読み直して変更し保存する（古い画面の内容で上書きしない）。 */
-async function updateConfig(mutator, logType, logDetail) {
-  const cfg = await db.getConfig();
-  mutator(cfg);
-  await db.saveConfig(cfg, logType, logDetail);
-  return cfg;
+/**
+ * 現在の config を読み直して変更し保存する（古い画面の内容で上書きしない）。
+ * 「読む」と「書く」は別のトランザクションなので、別のカードの保存（配色・回すもの・名前・参加の方法など）がほぼ同時に走ると、
+ * 同じ古い config を読んだ2つが続けて書いて、あとの書き込みが先の変更を消してしまう。1つずつ順番に行う。
+ */
+let configWrites = Promise.resolve();
+function updateConfig(mutator, logType, logDetail) {
+  const run = async () => {
+    const cfg = await db.getConfig();
+    mutator(cfg);
+    await db.saveConfig(cfg, logType, logDetail);
+    return cfg;
+  };
+  const done = configWrites.then(run);
+  configWrites = done.catch(() => {});   // 失敗しても、次の保存は止めない（失敗は呼び出し元に返す）
+  return done;
 }
 
 function applySound(cfg) {
