@@ -203,12 +203,24 @@ try {
 
   await step('初回セットアップ（PIN・本数・ルール・開始）', async () => {
     await page.goto(URL_FAST);
+    // はじめかた：既定は電波祭2026のテンプレート（設定ファイル・バックアップからの復元もここにある）
+    await page.waitForSelector(tid('setup-next'));
+    assert.equal(await page.getAttribute(tid('setup-template-denpasai-2026'), 'aria-pressed'), 'true', '既定のテンプレートは denpasai-2026');
+    assert.equal(await page.getAttribute(tid('setup-template-generic'), 'aria-pressed'), 'false');
+    assert.ok(await page.locator(tid('setup-restore')).isVisible() && await page.locator(tid('setup-profile')).isVisible());
+    await page.click(tid('setup-next'));
     await page.waitForSelector(tid('pin-ok'));
     // PIN 設定（2回入力）。不一致→やり直しも確認
     await pressKeys('pin', '1234'); await page.click(tid('pin-ok'));
     await pressKeys('pin', '9999'); await page.click(tid('pin-ok'));
     await pressKeys('pin', '1234'); await page.click(tid('pin-ok'));
     await pressKeys('pin', '1234'); await page.click(tid('pin-ok'));
+    // イベントの基本：テンプレートの内容が入っている（既定のまま進む）
+    await page.waitForSelector(tid('setup-brand-name'));
+    assert.equal(await page.inputValue(tid('setup-brand-name')), 'よーそろがちゃ');
+    assert.equal(await page.inputValue(tid('setup-event-name')), '電波祭2026');
+    assert.equal(await page.inputValue(tid('setup-days')), '2');
+    await page.click(tid('setup-next'));
     // 景品表：本数未定の警告が見える。day1 はステッカーのみ6本、day2 は3本
     await page.waitForSelector(tid('init-day1-greenland'));
     const txt = await page.textContent(tid('admin'));
@@ -942,6 +954,56 @@ try {
       assert.equal(n, 0, '放置では何も保存されない');
     } finally {
       await ctx2.close();
+    }
+  });
+
+  await step('スタッフ画面は演出（非 fast）の最中には開かない／結果が出てスタッフのボタンを待つあいだは開く', async () => {
+    // 3秒の長押しは待てないので、サービスワーカー無しの別コンテキストで config.js の LONG_PRESS_ADMIN_MS だけ 0.4 秒に差し替える（上のアイドルと同じ）。
+    // 演出は ?fast=1 なしの本物（協賛特別賞は保存完了から約5.5秒。余裕をみて一番長い系統にする）。配色・回すものの差し替えは演出中に行わない（DESIGN.md §10）
+    const ctx3 = await browser.newContext({ viewport: { width: 1180, height: 820 }, serviceWorkers: 'block' });
+    const p3 = await ctx3.newPage();
+    const press = async (ms) => {
+      const box = await p3.locator(tid('logo')).boundingBox();
+      await p3.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await p3.mouse.down(); await sleep(ms); await p3.mouse.up();
+    };
+    try {
+      await p3.route('**/js/config.js', async (route) => {
+        const resp = await route.fetch();
+        const body = (await resp.text()).replace(/LONG_PRESS_ADMIN_MS = 3000/, 'LONG_PRESS_ADMIN_MS = 400');
+        assert.ok(body.includes('LONG_PRESS_ADMIN_MS = 400'), 'config.js の差し替えに失敗');
+        await route.fulfill({ response: resp, body });
+      });
+      await p3.goto(`${BASE}icons/icon.svg`);
+      await p3.evaluate(async () => {
+        const c = await import('/js/config.js'); const m = await import('/js/db.js');
+        const cfg = c.createDefaultConfig(); cfg.pinHash = 'x';
+        const initials = c.createDefaultInitials();
+        for (const d of Object.keys(initials)) for (const k of Object.keys(initials[d])) initials[d][k] = k === 'greenland' ? 5 : 0;   // 協賛特別賞だけ
+        await m.initialize({ config: cfg, activeDayId: 'day1', initials });
+      });
+      await p3.goto(BASE);
+      await p3.waitForSelector(tid('screen-choose'));
+      await p3.click(tid('choose-student'));
+      await p3.waitForSelector(tid('screen-student'));
+      for (const ch of '2400001') await p3.click(tid(`tenkey-${ch}`));
+      await p3.click(tid('tenkey-ok'));
+      await p3.waitForSelector(tid('screen-wheel'));
+      await p3.click(tid('spin-button'));
+      await p3.waitForFunction(() => document.querySelector('#stage')?.classList.contains('playing'), null, { timeout: 5000 });
+      await sleep(400);
+      assert.equal(await p3.locator(tid('ok-button')).count(), 0, '演出の最中（スタッフのボタンはまだ無い）');
+      await press(1000);                                        // 演出の最中の長押し（0.4秒で成立する）
+      await sleep(300);
+      assert.equal(await p3.locator(`${tid('pin-ok')}, ${tid('admin')}`).count(), 0, '演出の最中はスタッフ画面が開かない');
+      await p3.waitForSelector(tid('ok-button'), { timeout: 20000 });   // 演出が終わり、スタッフのボタンが出る
+      await sleep(300);
+      await press(1000);
+      await p3.waitForSelector(tid('pin-ok'), { timeout: 3000 });       // 結果を表示して確認待ちのあいだは開ける（未確認の抽選の確認・復旧のため）
+      await p3.click(tid('pin-cancel'));
+      assert.ok(await p3.locator(tid('ok-button')).isVisible(), '閉じても結果はそのまま');
+    } finally {
+      await ctx3.close();
     }
   });
 
