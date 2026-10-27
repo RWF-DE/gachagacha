@@ -10,7 +10,8 @@ import { h, longPress } from './util.js';
 import {
   LONG_PRESS_OK_MS, LONG_PRESS_ADMIN_MS, IDLE_RESET_MS, SURVEY_VERSION, SURVEY_ADVANCE_MS,
 } from './config.js';
-import { templateConfig, TIER_LATIN, YOSORO_TIER_LATIN } from './templates.js';
+import { TIER_LATIN } from './templates.js';
+import { normalizeConfig } from './profile.js';
 import { applyTheme, resolveTheme } from './theme.js';
 import { getMotif } from './motifs.js';
 import * as admin from './admin.js';
@@ -31,6 +32,7 @@ let studentId = null;      // 正規化済み。メモリ内のみ。URL/console
 let survey = null;         // 一般の方のアンケート回答 {age:id|null, triggers:[id]}。メモリ内のみ（抽選の保存まで何も書かない）
 let navToken = 0;          // 画面遷移ごとに増やし、古い非同期結果を無視する
 let drawing = false;       // 抽選開始ガード（1回だけ）
+let revealing = false;     // 演出（stage.playReveal）の最中。スタッフ画面は開かない（配色・回すものの差し替えは演出中に行わない。DESIGN.md §10）
 let idleTimer = 0;
 
 const MSG_USED = 'この学籍番号では/参加済みです。/スタッフに/確認してください';
@@ -38,51 +40,22 @@ const safe = (fn) => { try { return fn(); } catch { /* 演出系の失敗で運�
 const play = (name) => safe(() => sound.play(name));
 
 // ---------- 見た目の設定（配色・回すもの・名前と文言・参加の方法・アンケート。docs/CUSTOMIZE.md §5〜§7） ----------
-const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
-const str = (v, d, min = 0) => (typeof v === 'string' && [...v].length >= min ? v : d);   // 文字列（min 字以上）だけ使い、それ以外は既定
-const bool = (v, d) => (typeof v === 'boolean' ? v : d);
-
 /**
- * config から見た目の設定を取り出す。足りない項目・形の違う項目はテンプレート denpasai-2026（＝よーそろ）の値で補う
- * （データ層の正規化が入る前の v1 config が来る間の橋渡し。正規化済みの config には補う項目が無く、そのまま返る）。
+ * config から見た目の設定を取り出す。db.getConfig() は正規化済みの v2 を返すので、ここで補うのは null などの壊れた入力のときだけ
+ * （normalizeConfig が足りない項目をテンプレート denpasai-2026＝よーそろの値で補う。正規化済みならそのまま同じ値）。
  */
 function lookOf(cfg) {
-  const d = templateConfig('denpasai-2026').config;
-  const c = obj(cfg);
-  const b = obj(c.brand);
-  const e = obj(c.entry);
-  const s = obj(c.survey);
-  const way = (k) => { const x = obj(e[k]); const w = d.entry[k]; return { enabled: bool(x.enabled, w.enabled), title: str(x.title, w.title, 1), sub: str(x.sub, w.sub) }; };
-  const q = (k) => {
-    const x = obj(s[k]);
-    const w = d.survey[k];
-    const ok = Array.isArray(x.options) && x.options.length >= 2 && x.options.every((o) => o && typeof o.id === 'string' && typeof o.label === 'string');
-    return { heading: str(x.heading, w.heading, 1), short: str(x.short, w.short, 1), options: ok ? x.options : w.options };
-  };
-  const entry = { student: way('student'), guest: way('guest') };
-  if (!entry.student.enabled && !entry.guest.enabled) entry.student.enabled = entry.guest.enabled = true;   // 入口がなくなる設定は無効
-  // 賞の欧文：v1 の config には無いので、よーそろの系統別ラベルで補う
-  const cats = (Array.isArray(c.categories) ? c.categories : []).map((x) => ({
-    id: x?.id, tier: x?.tier, latin: typeof x?.latin === 'string' ? x.latin : (YOSORO_TIER_LATIN[x?.tier] ?? ''),
-  }));
+  const c = normalizeConfig(cfg);
   return {
-    eventName: str(c.eventName, d.eventName, 1),
-    brand: {
-      name: str(b.name, d.brand.name, 1),
-      nameLatin: str(b.nameLatin, d.brand.nameLatin),
-      eventLabel: str(b.eventLabel, d.brand.eventLabel),
-      eventLatin: str(b.eventLatin, d.brand.eventLatin),
-      tagline: str(b.tagline, d.brand.tagline),
-      prizeWord: str(b.prizeWord, d.brand.prizeWord, 1),
-      wordmark: 'wordmark' in b ? b.wordmark : d.brand.wordmark,   // null（手詰めなし）も設定の値。形の検証は screens.js tunedOf
-    },
-    theme: { preset: str(obj(c.theme).preset, d.theme.preset), custom: obj(c.theme).custom ?? null },
-    motif: str(c.motif, d.motif),
-    entry,
-    survey: { enabled: bool(s.enabled, d.survey.enabled), notice: str(s.notice, d.survey.notice), q1: q('q1'), q2: q('q2') },
+    eventName: c.eventName,
+    brand: c.brand,
+    theme: c.theme,
+    motif: c.motif,
+    entry: c.entry,
+    survey: c.survey,
     /** 結果画面に出す賞の欧文。今の config から categoryId で引く（飾りなので。賞が消えていれば系統の既定） */
     latinFor: (categoryId, tier) => {
-      const cat = cats.find((x) => x.id === categoryId);
+      const cat = c.categories.find((x) => x.id === categoryId);
       return (cat && cat.latin) || TIER_LATIN[cat?.tier ?? tier] || '';
     },
   };
@@ -324,10 +297,13 @@ async function onTurn() {
   }
   studentId = null; survey = null; // 保存後は学籍番号・アンケート回答をメモリからも消す
   state = 'result';
+  revealing = true;   // 演出が終わる（スタッフのボタンが出る）まで、ロゴの長押しでもスタッフ画面は開かない
   try {
     await stage.playReveal(toReveal(result));
   } catch { /* 演出が失敗しても結果は保存済み。下で静的表示に切り替える */
     safe(() => stage.showResultStatic(toReveal(result)));
+  } finally {
+    revealing = false;
   }
   host.replaceChildren();
   mountOkButton(result.id, result.kind);
@@ -415,7 +391,7 @@ function applySound() {
 }
 
 async function openAdmin() {
-  if (state === 'drawing' || state === 'setup') return;
+  if (state === 'drawing' || state === 'setup' || revealing) return;   // 結果が出てスタッフのボタンを待つあいだ（未確認の結果の再表示も）は開ける
   const wasResult = state === 'result';
   safe(() => stage.setInteractive(false));
   await admin.open();
