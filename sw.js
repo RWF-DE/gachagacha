@@ -3,7 +3,7 @@
 // - 本番中の強制リロードを避けるため skipWaiting は自動では呼ばない。
 //   スタッフ画面から {type:'SKIP_WAITING'} を受けたときだけ有効化する。
 // - ファイルを更新してデプロイするときは VERSION を上げること（上げないと古いキャッシュが使われ続ける）。
-const VERSION = 12;
+const VERSION = 13;
 const CACHE_PREFIX = 'yosoro-gacha-';
 const CACHE = `${CACHE_PREFIX}v${VERSION}`;
 
@@ -32,7 +32,6 @@ const PRECACHE = [
   'js/screens.js',
   'js/stage.js',
   'js/survey.js',
-  'js/templates.js',
   'js/theme.js',
   'js/motifs.js',
   'js/perf.js',
